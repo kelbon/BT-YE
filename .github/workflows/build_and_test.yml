@@ -1,0 +1,99 @@
+name: build_and_test
+
+'on':
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' || !github.ref }}
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04]
+        compiler: [g++-14, clang++-18]
+        cpp_standard: [23]
+        build_type: [Debug, Release]
+    runs-on: ${{matrix.os}}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install ninja-build
+          if [[ "${{ matrix.compiler }}" == g++-14* ]]; then
+            sudo apt-get install gcc-14
+          elif [[ "${{ matrix.compiler }}" == clang++-18* ]]; then
+            sudo apt-get install clang-18
+          fi
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: "v0.10.0" # Version of the sccache binary to install
+
+      - name: Configure CMake
+        run: |
+          cmake . -Dbtye_ENABLE_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=${{matrix.build_type}}     \
+            -DCMAKE_CXX_COMPILER=${{matrix.compiler}}     \
+            -DCMAKE_CXX_STANDARD=${{matrix.cpp_standard}} \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5            \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache           \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache         \
+            -B build -G "Ninja"
+      - name: Build
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+        run: |
+          cmake --build build
+      - name: Test
+        run: |
+          cd build
+          ctest --output-on-failure -C ${{matrix.build_type}}
+
+      - name: Configure CMake (ASAN)
+        run:  |
+          cmake . -Dbtye_ENABLE_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=${{matrix.build_type}}     \
+            -DCMAKE_CXX_COMPILER=${{matrix.compiler}}     \
+            -DCMAKE_CXX_STANDARD=${{matrix.cpp_standard}} \
+            -Dbtye_ENABLE_ASAN=ON  \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache           \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache         \
+            -B build_asan -G "Ninja"
+      - name: Build (ASAN)
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+        run:
+          cmake --build build_asan
+      - name: Test (ASAN)
+        run: |
+          cd build_asan
+          ctest --output-on-failure -C ${{matrix.build_type}}
+
+      - name: Configure CMake (UBSAN)
+        run:  |
+          cmake . -Dbtye_ENABLE_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=${{matrix.build_type}}     \
+            -DCMAKE_CXX_COMPILER=${{matrix.compiler}}     \
+            -DCMAKE_CXX_STANDARD=${{matrix.cpp_standard}} \
+            -Dbtye_ENABLE_UBSAN=ON  \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache           \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache         \
+            -B build_ubsan -G "Ninja"
+      - name: Build (UBSAN)
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+        run:
+          cmake --build build_ubsan
+
+      - name: Test (UBSAN)
+        run: |
+          cd build_ubsan
+          ctest --output-on-failure -C ${{matrix.build_type}}

@@ -1,0 +1,14 @@
+CMakeCache.txt
+CMakeFiles
+CMakeSettings.json
+CMakePresets.json
+compile_commands.json
+
+.cache
+.vs/
+.vscode/
+.trash/
+
+build/
+build_release/
+build_reldbg/
