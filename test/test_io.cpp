@@ -3,11 +3,13 @@
 #include "btye/io.hpp"
 
 #include <hidi/asio/awaiters.hpp>
+#include <hidi/asio/io_impl.hpp>
 #include <hidi/h2client.hpp>
 #include <hidi/h2server.hpp>
 
 #include <moko3/moko3.hpp>
 
+#include <atomic>
 #include <chrono>
 
 using namespace std::chrono_literals;
@@ -64,6 +66,51 @@ TEST("create_timer: the timer of the current actor") {
     co_return 0;
   });
   REQUIRE(code == 0 && woke_on == 1);
+}
+
+TEST("local_io_ref: asio directly, other contexts and asio with starter through forwarding") {
+  // по умолчанию asio_io: ссылка на тот же asio::io_context
+  bool direct = false;
+  btye::run(actors(2), [&]() -> dd::task<int> {
+    hidi::any_io_context ref = btye::local_io_ref();
+    hidi::asio_ref_io* r = aa::any_cast<hidi::asio_ref_io>(&ref);
+    hidi::asio_io* own = aa::any_cast<hidi::asio_io>(&local_actor()->ioctx());
+    direct = r && own && &r->ioctx == &own->ioctx;
+    co_return 0;
+  });
+  REQUIRE(direct);
+
+  // starter не теряется: контекст со starter - через пересылку
+  std::atomic_int started = 0;
+  std::string answer;
+  bool forwarded = false;
+  btye::actor_context_factory_t factory = [&] {
+    return hidi::any_io_context(std::in_place_type<hidi::asio_io>,
+                                [&](boost::asio::ip::tcp::socket&, hidi::deadline_t) -> dd::task<void> {
+                                  ++started;
+                                  co_return;
+                                });
+  };
+  int code = btye::run(
+      actors(2),
+      [&]() -> dd::task<int> {
+        hidi::any_io_context ref = btye::local_io_ref();
+        forwarded = !aa::any_cast<hidi::asio_ref_io>(&ref);
+        id_server server(nullptr, {}, std::move(ref));
+        hidi::internet_address addr =
+            server.listen({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
+        answer = co_await btye::invoke_on(1, [](hidi::internet_address addr) -> dd::task<std::string> {
+          hidi::h2client client(addr, nullptr, {}, btye::local_io_ref());
+          hidi::http_response rsp =
+              co_await client.send_request(hidi::http_request{.path = "/"}, hidi::deadline_after(5s));
+          co_await client.graceful_stop();
+          co_return std::string(rsp.body_strview());
+        }(addr));
+        co_await server.shutdown();
+        co_return 0;
+      },
+      std::move(factory));
+  REQUIRE(code == 0 && forwarded && answer == "0" && started > 0);
 }
 
 REGISTER_TEST_LISTENER(moko3::gtest_listener);

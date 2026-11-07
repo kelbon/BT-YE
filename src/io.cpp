@@ -1,5 +1,7 @@
 #include "btye/io.hpp"
 
+#include "asio_of.hpp"
+
 #include <memory>
 
 namespace btye {
@@ -63,7 +65,12 @@ struct actor_io {
 }  // namespace noexport
 
 hidi::any_io_context local_io_ref() {
-  return noexport::actor_io{std::addressof(local_actor_ref().ioctx())};
+  hidi::any_io_context& ctx = local_actor_ref().ioctx();
+  // asio - ссылкой прямо на asio::io_context, без пересылки. Кроме контекста со starter: он move-only, в
+  // ссылку его не скопировать
+  if (hidi::asio_ref_io* io = noexport::asio_of(ctx); io && !io->starter)
+    return hidi::any_io_context(std::in_place_type<hidi::asio_ref_io>, io->ioctx);
+  return noexport::actor_io{std::addressof(ctx)};
 }
 
 hidi::any_timer create_timer() {
