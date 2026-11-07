@@ -10,6 +10,7 @@ include(cmake/deps.cmake)
 add_library(btyelib STATIC
     # add new .cpp files here. GLOB for libraries is bad practice  
     src/common.cpp
+    src/app.cpp
 )
 
 target_include_directories(btyelib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
