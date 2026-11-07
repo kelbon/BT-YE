@@ -14,7 +14,7 @@
 #include <vector>
 
 using btye::all_actors;
-using btye::this_actor;
+using btye::local_actor;
 
 static btye::app_options actors(size_t n) {
   return btye::app_options{.actors_count = n};
@@ -25,17 +25,17 @@ using btye::yield;
 TEST("main on actor 0, jumps between actors") {
   std::vector<size_t> visited;
   int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    visited.push_back(this_actor()->id());
+    visited.push_back(local_actor()->id());
     for (btye::actor& a : all_actors()) {
       co_await btye::jump_on(a);
-      visited.push_back(this_actor()->id());
+      visited.push_back(local_actor()->id());
     }
     co_return 7;
   });
   REQUIRE(code == 7);
   REQUIRE((visited == std::vector<size_t>{0, 0, 1, 2}));
   // вне run акторов нет
-  REQUIRE(all_actors().empty() && !this_actor());
+  REQUIRE(all_actors().empty() && !local_actor());
 }
 
 TEST("jump_on by id") {
@@ -44,13 +44,13 @@ TEST("jump_on by id") {
   int code = btye::run(actors(3), [&]() -> dd::task<int> {
     for (size_t id : {2u, 0u, 1u}) {
       co_await btye::jump_on_actor(id);
-      visited.push_back(this_actor()->id());
+      visited.push_back(local_actor()->id());
     }
-    REQUIRE(&btye::get_actor(1) == this_actor());
+    REQUIRE(&btye::get_actor(1) == local_actor());
     std::thread t([&] {
       foreign_visited = []() -> dd::async_task<size_t> {
         co_await btye::jump_on_actor(2);
-        co_return this_actor()->id();
+        co_return local_actor()->id();
       }()
                                     .get();
     });
@@ -90,11 +90,11 @@ TEST("jump from a foreign thread") {
   int code = btye::run(actors(2), [&]() -> dd::task<int> {
     done.emplace(1, all_actors()[0]);
     std::thread t([&] {
-      foreign_is_actor = this_actor() != nullptr;
+      foreign_is_actor = local_actor() != nullptr;
       foreign_sees = all_actors().size();
       [](btye::actor& a, size_t& visited, dd::latch& done) -> dd::job {
         co_await btye::jump_on(a);
-        visited = this_actor()->id();
+        visited = local_actor()->id();
         done.count_down();
       }(all_actors()[1], visited, *done);
     });
@@ -114,7 +114,7 @@ TEST("result to a foreign thread through async_task") {
     std::thread t([&] {
       auto on_actor = []() -> dd::async_task<size_t> {
         co_await btye::jump_on(all_actors()[1]);
-        co_return this_actor()->id() + 10;
+        co_return local_actor()->id() + 10;
       };
       result = on_actor().get();
     });
@@ -157,7 +157,7 @@ TEST("stop requested from a foreign thread") {
         btye::request_stop();
       }(*a);
     });
-    while (!this_actor()->stopped())
+    while (!local_actor()->stopped())
       co_await yield();
     t.join();
     co_return 5;
@@ -204,10 +204,10 @@ TEST("main returns to actor 0 after stop") {
   int code = btye::run(actors(2), []() -> dd::task<int> {
     co_await btye::jump_on(all_actors()[1]);
     btye::request_stop();
-    while (!this_actor()->stopped())
+    while (!local_actor()->stopped())
       co_await yield();
     co_await btye::jump_on(all_actors()[0]);
-    co_return this_actor()->id() == 0 ? 9 : 1;
+    co_return local_actor()->id() == 0 ? 9 : 1;
   });
   REQUIRE(code == 9);
 }
@@ -221,8 +221,8 @@ TEST("at_exit: order and stopped") {
       co_await btye::jump_on(a);
       for (int i = 1; i <= 2; ++i) {
         a.at_exit([&, i] {
-          calls.emplace_back(this_actor()->id(), i);
-          stopped_in_callback = stopped_in_callback && this_actor()->stopped();
+          calls.emplace_back(local_actor()->id(), i);
+          stopped_in_callback = stopped_in_callback && local_actor()->stopped();
         });
       }
     }
@@ -237,7 +237,7 @@ TEST("background task started from at_exit keeps all loops alive") {
   // того, как остановка прошла все акторы и main завершилась
   std::vector<size_t> visited;
   int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    this_actor()->at_exit([&] {
+    local_actor()->at_exit([&] {
       btye::run_in_background([](std::vector<size_t>& visited) -> dd::task<void> {
         for (int round = 0; round < 3; ++round) {
           for (btye::actor& a : all_actors()) {
@@ -258,8 +258,8 @@ TEST("main waits for stop from a foreign thread") {
   bool stopped = false;
   std::optional<dd::latch> stop;
   int code = btye::run(actors(2), [&]() -> dd::task<int> {
-    stop.emplace(1, *this_actor());
-    this_actor()->at_exit([&] { stop->count_down(); });
+    stop.emplace(1, *local_actor());
+    local_actor()->at_exit([&] { stop->count_down(); });
     std::thread t([] {
       [](btye::actor& a) -> dd::job {
         co_await btye::jump_on(a);
@@ -280,8 +280,8 @@ TEST("main waits for stop from a foreign thread") {
 TEST("exceptions from at_exit and background tasks") {
   bool other_called = false;
   int code = btye::run(actors(1), [&]() -> dd::task<int> {
-    this_actor()->at_exit([&] { other_called = true; });
-    this_actor()->at_exit([] { throw std::runtime_error("at_exit failed"); });
+    local_actor()->at_exit([&] { other_called = true; });
+    local_actor()->at_exit([] { throw std::runtime_error("at_exit failed"); });
     co_return 0;
   });
   REQUIRE(code == 1 && other_called);

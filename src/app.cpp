@@ -36,6 +36,10 @@ struct app_state {
     a.idx = i;
   }
 
+  static hidi::any_io_context& get_ioctx(actor& a) noexcept {
+    return a.ctx;
+  }
+
   static void run_loop(actor& a) noexcept {
     a.ctx.run();
   }
@@ -126,7 +130,7 @@ void actor::at_exit(aa::move_only_fn<void()> cb) {
   exit_callbacks.push_back(std::move(cb));
 }
 
-actor* this_actor() noexcept {
+actor* local_actor() noexcept {
   return current_actor;
 }
 
@@ -163,17 +167,14 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
 
   auto create_context = [&](actor& a) noexcept {
     std::lock_guard l(factory_mtx);
-    a.ioctx() = factory();   // вызов на потоке акторе
-    a.ioctx().start_task();  // снимется в release_actors
+    app_state::get_ioctx(a) = factory();   // вызов на потоке акторе
+    app_state::get_ioctx(a).start_task();  // снимется в release_actors
   };
   actor& a0 = actors[0];
   current_actor = &a0;
   create_context(a0);
 
   std::latch ready{ptrdiff_t(n - 1)};
-  // Контекст разрушается, только когда закончились циклы всех акторов: поток, сделавший post в контекст,
-  // выходит из post уже после того, как получатель мог выполнить задачу и закончить свой цикл.
-  // Конец цикла отправителя означает, что его post завершён
   std::latch loops_done{ptrdiff_t(n)};
   std::vector<std::thread> threads;
   threads.reserve(n - 1);
@@ -185,7 +186,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
       ready.count_down();
       app_state::run_loop(a);
       loops_done.arrive_and_wait();
-      a.ioctx().reset();
+      app_state::get_ioctx(a).reset();
       current_actor = nullptr;
     });
   }
@@ -197,7 +198,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   app_state::run_loop(a0);
   foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
-  a0.ioctx().reset();
+  app_state::get_ioctx(a0).reset();
   current_actor = nullptr;
   for (std::thread& t : threads)
     t.join();

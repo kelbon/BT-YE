@@ -38,17 +38,12 @@ struct actor {
   actor(actor&&) = delete;
   void operator=(actor&&) = delete;
 
-  // 0..N-1, актор 0 - поток, вызвавший btye::run
   [[nodiscard]] size_t id() const noexcept {
     return idx;
   }
 
-  // создан фабрикой на потоке актора и там же разрушается
-  [[nodiscard]] hidi::any_io_context& ioctx() noexcept {
-    return ctx;
-  }
-
-  // Остановка дошла до этого актора (см. btye::request_stop). Только с потока актора
+  // Остановка дошла до этого актора (см. btye::request_stop)
+  // можно вызывать только с актора
   [[nodiscard]] bool stopped() const noexcept {
     return is_stopped;
   }
@@ -56,14 +51,14 @@ struct actor {
   // вызовется до остановки, может создавать фоновые задачи - их дождутся
   void at_exit(aa::move_only_fn<void()>);
 
-  // executor kelcoro, с любого потока. Всегда ставит задачу в очередь (см. btye::jump_on, btye::yield).
+  // можно вызывать с любого потока. Всегда ставит задачу в очередь
   void attach(dd::task_node* n) {
     ctx.attach(n);
   }
 };
 
 // Актор текущего потока. nullptr - поток не актор
-[[nodiscard]] actor* this_actor() noexcept;
+[[nodiscard]] actor* local_actor() noexcept;
 
 // можно вызывать с любого потока, но вызывающий отвечает за синхронизацию и не обращение завершившимся
 // акторам
@@ -75,14 +70,13 @@ struct actor {
   return all_actors()[id];
 }
 
-// Запускает задачу на текущем акторе (только на акторе) как фоновую: пока идёт хоть одна фоновая задача,
-// циклы всех акторов живы. Исключение из задачи - лог.
-// Если stopped() у своего актора - только из фоновой задачи или at_exit
-void run_in_background(dd::task<void>);
+// Запускает задачу на текущем акторе (только на акторе) как фоновую
+// Исключение из `task` игнорируется (лог)
+// Нельзя вызывать из корутины, которую никто не ждёт
+void run_in_background(dd::task<void> task);
 
 namespace noexport {
 
-// HereReady - уже на акторе: продолжить сразу, без очереди
 template <bool HereReady>
 struct jump_on_actor : dd::task_node {
   actor& a;
@@ -92,7 +86,7 @@ struct jump_on_actor : dd::task_node {
 
   bool await_ready() const noexcept {
     if constexpr (HereReady)
-      return this_actor() == &a;
+      return local_actor() == &a;
     else
       return false;
   }
@@ -106,23 +100,22 @@ struct jump_on_actor : dd::task_node {
 
 }  // namespace noexport
 
-// co_await jump_on(actor): продолжить на акторе. Уже на нём - продолжает сразу, без очереди.
-// С любого потока. Перегрузка для ADL: неквалифицированный jump_on внутри kelcoro тоже выберет её.
-// Если stopped() у своего актора, на другой актор - только из фоновой задачи или at_exit: иначе цикл
-// цели мог уже закончиться и задача не выполнится
+// noop если уже на этом акторе
+// С любого потока
+// jump_on нельзя делать корутине, которую никто не ждёт
 [[nodiscard]] inline noexport::jump_on_actor<true> jump_on(actor& a) noexcept {
   return noexport::jump_on_actor<true>(a);
 }
 
-// co_await jump_on(id): то же для актора с номером id
 [[nodiscard]] inline noexport::jump_on_actor<true> jump_on_actor(size_t id) noexcept {
   return jump_on(get_actor(id));
 }
 
-// co_await yield(): уступить исполнение - встать в конец очереди текущего актора. Только на акторе
+// встать в конец очереди текущего актора
+// можно вызывать только на акторе
 [[nodiscard]] inline noexport::jump_on_actor<false> yield() noexcept {
-  assert(this_actor() && "yield must be called on an actor thread");
-  return noexport::jump_on_actor<false>(*this_actor());
+  assert(local_actor() && "yield must be called on an actor thread");
+  return noexport::jump_on_actor<false>(*local_actor());
 }
 
 }  // namespace btye
