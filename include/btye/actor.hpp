@@ -3,8 +3,11 @@
 #include <cassert>
 #include <coroutine>
 #include <span>
+#include <vector>
 
+#include <anyany/anyany.hpp>
 #include <kelcoro/executor_interface.hpp>
+#include <kelcoro/task.hpp>
 #include <hidi/utils/any_io_context.hpp>
 
 namespace btye {
@@ -21,11 +24,14 @@ struct actor {
  private:
   hidi::any_io_context ctx;
   noexport::app_state* app = nullptr;
+  // только на потоке актора
+  std::vector<aa::move_only_fn<void()>> exit_callbacks;
   size_t idx = 0;
   bool is_stopped = false;
 
   friend struct noexport::app_state;
   friend std::span<actor> all_actors() noexcept;
+  friend void run_in_background(dd::task<void>);
 
  public:
   actor() = default;
@@ -42,15 +48,16 @@ struct actor {
     return ctx;
   }
 
-  // Остановка дошла до этого актора (см. btye::request_stop). Только с потока актора.
-  // Увидев остановку, корутина не должна планировать новые задачи и прыгать на другие акторы
+  // Остановка дошла до этого актора (см. btye::request_stop). Только с потока актора
   [[nodiscard]] bool stopped() const noexcept {
     return is_stopped;
   }
 
-  // executor kelcoro, с любого потока. Всегда ставит задачу в очередь (см. btye::jump_on, btye::yield)
+  // вызовется до остановки, может создавать фоновые задачи - их дождутся
+  void at_exit(aa::move_only_fn<void()>);
+
+  // executor kelcoro, с любого потока. Всегда ставит задачу в очередь (см. btye::jump_on, btye::yield).
   void attach(dd::task_node* n) {
-    // TODO is_stopped надо отменять задачу
     ctx.attach(n);
   }
 };
@@ -58,8 +65,14 @@ struct actor {
 // Актор текущего потока. nullptr - поток не актор
 [[nodiscard]] actor* this_actor() noexcept;
 
-// Все акторы. На потоке, который не актор, - пусто: чужому потоку их передаёт пользователь
+// можно вызывать с любого потока, но вызывающий отвечает за синхронизацию и не обращение завершившимся
+// акторам
 [[nodiscard]] std::span<actor> all_actors() noexcept;
+
+// Запускает задачу на текущем акторе (только на акторе) как фоновую: пока выполняется хоть одна фоновая
+// задача, циклы всех акторов живы и задача может прыгать на любые акторы. Исключение из задачи - лог.
+// Запуск после того, как остановка сняла удержания циклов, - нарушение контракта
+void run_in_background(dd::task<void>);
 
 namespace noexport {
 
@@ -81,8 +94,7 @@ struct jump_on_actor : dd::task_node {
     task = h;
     a.attach(this);
   }
-  [[nodiscard]] dd::schedule_status await_resume() const noexcept {
-    return dd::schedule_status{status};
+  static void await_resume() noexcept {
   }
 };
 

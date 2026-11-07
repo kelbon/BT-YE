@@ -3,24 +3,32 @@
 #include <hidi/asio/io.hpp>
 #include <kelcoro/job.hpp>
 
+#include <atomic>
 #include <cassert>
 #include <latch>
 #include <memory>
 #include <mutex>
 #include <print>
+#include <ranges>
 #include <thread>
 #include <vector>
 
 namespace btye {
 
 static thread_local actor* current_actor = nullptr;
+// для потоков, которые не акторы (all_actors). На акторах не читается
+static std::atomic<noexport::app_state*> foreign_app = nullptr;
 
 namespace noexport {
 
 struct app_state {
   std::span<actor> actors;
+  // + 1 от main, + 1 пока не прошёл stop_actors
+  std::atomic_size_t background = 2;
   // только на акторе 0
   bool stop_started = false;
+  // пишутся по ходу `main` и остановки, читаются после конца циклов
+  bool exit_callback_failed = false;
   int exit_code = 0;
 
   static void init_actor(actor& a, app_state& s, size_t i) noexcept {
@@ -32,18 +40,55 @@ struct app_state {
     a.ctx.run();
   }
 
+  static void log_exception(std::string_view where) noexcept {
+    try {
+      throw;
+    } catch (const std::exception& e) {
+      std::println(stderr, "btye: exception from {}: {}", where, e.what());
+    } catch (...) {
+      std::println(stderr, "btye: unknown exception from {}", where);
+    }
+  }
+
+  static dd::job release_actors(app_state& s) {
+    for (actor& a : s.actors) {
+      co_await jump_on(a);
+      a.ctx.end_task();
+    }
+  }
+
+  void background_done() {
+    if (background.fetch_sub(1, std::memory_order_acq_rel) == 1)
+      release_actors(*this);
+  }
+
+  static dd::job run_background(app_state& s, dd::task<void> t) {
+    try {
+      co_await std::move(t);
+    } catch (...) {
+      log_exception("background task");
+    }
+    s.background_done();
+  }
+
   static dd::job stop_actors(app_state& s) {
-    (void)co_await jump_on(s.actors[0]);
+    co_await jump_on(s.actors[0]);
     if (std::exchange(s.stop_started, true))
       co_return;
     for (actor& a : s.actors) {
-      (void)co_await jump_on(a);
+      co_await jump_on(a);
       a.is_stopped = true;
+      for (auto& cb : a.exit_callbacks | std::views::reverse) {
+        try {
+          cb();
+        } catch (...) {
+          s.exit_callback_failed = true;
+          log_exception("at_exit callback");
+        }
+      }
+      a.exit_callbacks.clear();
     }
-    for (actor& a : s.actors) {
-      (void)co_await jump_on(a);
-      a.ctx.end_task();
-    }
+    s.background_done();
   }
 
   static void request_stop(actor& a) {
@@ -51,26 +96,21 @@ struct app_state {
       stop_actors(*a.app);
   }
 
-  // `main` держит цикл актора 0 (start_task в run), поэтому вернуться на него можно всегда
-  static dd::job run_main(app_state& s, aa::move_only_fn<dd::task<int>()>& main) {
+  static dd::job start_main(app_state& s, aa::move_only_fn<dd::task<int>()>& main) {
     actor& a0 = s.actors[0];
-    // run вызывает на акторе 0 до запуска цикла: `main` выполняется уже в цикле
-    (void)co_await yield();
+    co_await yield();
     int code;
     try {
       code = co_await main();
-    } catch (const std::exception& e) {
-      code = 1;
-      std::println(stderr, "btye: exception from main: {}", e.what());
     } catch (...) {
       code = 1;
-      std::println(stderr, "btye: unknown exception from main");
+      log_exception("main");
     }
-    (void)co_await jump_on(a0);
     s.exit_code = code;
-    // до end_task: если это последнее удержание, задача остановки уже в очереди и цикл её выполнит
+    // `main` - фоновая задача, циклы живы: вернуться на актор можно всегда
+    co_await jump_on(a0);
     request_stop(a0);
-    a0.ctx.end_task();
+    s.background_done();
   }
 };
 
@@ -80,13 +120,30 @@ actor_context_factory_t default_actor_context_factory() {
   return [] { return hidi::make_asio_io_context(); };
 }
 
+void actor::at_exit(aa::move_only_fn<void()> cb) {
+  assert(current_actor == this && "at_exit must be called on the actor's thread");
+  assert(!is_stopped && "at_exit called after the actor is stopped");
+  exit_callbacks.push_back(std::move(cb));
+}
+
 actor* this_actor() noexcept {
   return current_actor;
 }
 
 std::span<actor> all_actors() noexcept {
-  // TODO доступ с другого потока должен быть
-  return current_actor ? current_actor->app->actors : std::span<actor>{};
+  if (current_actor)
+    return current_actor->app->actors;
+  noexport::app_state* s = foreign_app.load(std::memory_order_acquire);
+  return s ? s->actors : std::span<actor>{};
+}
+
+void run_in_background(dd::task<void> t) {
+  assert(current_actor && "run_in_background must be called on an actor thread");
+  noexport::app_state& s = *current_actor->app;
+  size_t was = s.background.fetch_add(1, std::memory_order_acq_rel);
+  assert(was != 0 && "run_in_background after the loops are released");
+  (void)was;
+  noexport::app_state::run_background(s, std::move(t));
 }
 
 void request_stop() noexcept {
@@ -103,11 +160,11 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
     app_state::init_actor(actors[i], s, i);
 
   std::mutex factory_mtx;
-  // на потоке актора, цикл удерживается до второго прохода остановки
+
   auto create_context = [&](actor& a) noexcept {
     std::lock_guard l(factory_mtx);
-    a.ioctx() = factory();
-    a.ioctx().start_task();
+    a.ioctx() = factory();   // вызов на потоке акторе
+    a.ioctx().start_task();  // снимется в release_actors
   };
   actor& a0 = actors[0];
   current_actor = &a0;
@@ -134,15 +191,18 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   }
   ready.wait();
   factory.reset();
+  foreign_app.store(&s, std::memory_order_release);
 
-  a0.ioctx().start_task();  // держит `main`
-  app_state::run_main(s, main);
+  app_state::start_main(s, main);
   app_state::run_loop(a0);
+  foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
   a0.ioctx().reset();
   current_actor = nullptr;
   for (std::thread& t : threads)
     t.join();
+  if (s.exit_code == 0 && s.exit_callback_failed)
+    return 1;
   return s.exit_code;
 }
 
