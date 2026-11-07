@@ -12,7 +12,7 @@ include(${CCOZY_SOURCE_DIR}/ccozy_tools.cmake)
 CPMAddPackage(
   NAME SVARG
   GITHUB_REPOSITORY kelbon/svarg
-  GIT_TAG main
+  GIT_TAG 2318210dfe4fa9e965ad778f7b5134cda1241fa2
 )
 
 if (btye_ENABLE_TESTING)

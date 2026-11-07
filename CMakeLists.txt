@@ -8,8 +8,6 @@ option(btye_ENABLE_UBSAN "build UBSAN (for CI)" OFF)
 include(cmake/deps.cmake)
 
 add_library(btyelib STATIC
-    # add new .cpp files here. GLOB for libraries is bad practice  
-    src/common.cpp
     src/app.cpp
 )
 
