@@ -76,8 +76,7 @@ struct per_actor {
   dd::noexport::fixed_array<std::unique_ptr<T>> instances;
 
   T* local_ptr() noexcept {
-    assert(local_actor());
-    return instances.size() ? instances[local_actor()->id()].get() : nullptr;
+    return instances.size() ? instances[local_actor_ref().id()].get() : nullptr;
   }
 
   // создаётся на том акторе, где задача стартует

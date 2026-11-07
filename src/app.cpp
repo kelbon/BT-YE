@@ -142,8 +142,7 @@ std::span<actor> all_actors() noexcept {
 }
 
 void run_in_background(dd::task<void> t) {
-  assert(current_actor && "run_in_background must be called on an actor thread");
-  noexport::app_state& s = *current_actor->app;
+  noexport::app_state& s = *local_actor_ref().app;
   size_t was = s.background.fetch_add(1, std::memory_order_acq_rel);
   assert(was != 0 && "run_in_background after the loops are released");
   (void)was;
@@ -151,8 +150,7 @@ void run_in_background(dd::task<void> t) {
 }
 
 void request_stop() noexcept {
-  assert(current_actor && "request_stop must be called on an actor thread");
-  noexport::app_state::request_stop(*current_actor);
+  noexport::app_state::request_stop(local_actor_ref());
 }
 
 int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_factory_t factory) {

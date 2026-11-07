@@ -60,6 +60,12 @@ struct actor {
 // Актор текущего потока. nullptr - поток не актор
 [[nodiscard]] actor* local_actor() noexcept;
 
+// актор текущего потока, assert что поток - актор
+[[nodiscard]] inline actor& local_actor_ref() noexcept {
+  assert(local_actor() && "must be called on an actor thread");
+  return *local_actor();
+}
+
 // можно вызывать с любого потока, но вызывающий отвечает за синхронизацию и не обращение завершившимся
 // акторам
 [[nodiscard]] std::span<actor> all_actors() noexcept;
@@ -114,8 +120,7 @@ struct jump_on_actor : dd::task_node {
 // встать в конец очереди текущего актора
 // можно вызывать только на акторе
 [[nodiscard]] inline noexport::jump_on_actor<false> yield() noexcept {
-  assert(local_actor() && "yield must be called on an actor thread");
-  return noexport::jump_on_actor<false>(*local_actor());
+  return noexport::jump_on_actor<false>(local_actor_ref());
 }
 
 }  // namespace btye
