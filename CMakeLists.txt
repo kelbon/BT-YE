@@ -12,6 +12,7 @@ add_library(btyelib STATIC
     src/io.cpp
     src/interrupt.cpp
     src/crash.cpp
+    src/sleep.cpp
 )
 
 target_include_directories(btyelib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
