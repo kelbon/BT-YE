@@ -1,5 +1,7 @@
 #include "btye/app.hpp"
 
+#include "interrupt.hpp"
+
 #include <hidi/asio/io.hpp>
 #include <kelcoro/job.hpp>
 
@@ -25,6 +27,8 @@ struct app_state {
   std::span<actor> actors;
   // + 1 от main, + 1 пока не прошёл stop_actors
   std::atomic_size_t background = 2;
+  // только на акторе 0
+  aa::move_only_fn<void()> stop_interrupt;
   // только на акторе 0
   bool stop_started = false;
   // пишутся по ходу `main` и остановки, читаются после конца циклов
@@ -75,6 +79,9 @@ struct app_state {
     co_await jump_on(s.actors[0]);
     if (std::exchange(s.stop_started, true))
       co_return;
+    // дальше сигналы обрабатывает система: повторный Ctrl+C во время остановки завершает процесс
+    if (s.stop_interrupt)
+      s.stop_interrupt();
     for (actor& a : s.actors) {
       co_await jump_on(a);
       a.is_stopped = true;
@@ -167,6 +174,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   actor& a0 = actors[0];
   current_actor = &a0;
   create_context(a0);
+  if (opts.handle_interrupt)
+    s.stop_interrupt = noexport::handle_interrupt(a0);
 
   std::latch ready{ptrdiff_t(n - 1)};
   std::latch loops_done{ptrdiff_t(n)};

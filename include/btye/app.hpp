@@ -21,6 +21,9 @@ actor_context_factory_t default_actor_context_factory();
 struct app_options {
   // 0 - std::thread::hardware_concurrency() (минимум 1)
   size_t actors_count = 0;
+  // SIGINT/SIGTERM (Windows - Ctrl+C, Ctrl+Break) вызывают request_stop. Когда остановка началась, повторный
+  // сигнал обрабатывается системой как обычно (обычно завершает процесс)
+  bool handle_interrupt = true;
   // TODO bind2cpu - биндить ли акторов к тредам
   // TODO какой-то выбор io, видимо через фактори
   // TODO? размер стека файбера/потока + ставить ли имена потокам (ну типа актор1 актор2)

@@ -10,6 +10,7 @@ include(cmake/deps.cmake)
 add_library(btyelib STATIC
     src/app.cpp
     src/io.cpp
+    src/interrupt.cpp
 )
 
 target_include_directories(btyelib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
