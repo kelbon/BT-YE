@@ -1,0 +1,20 @@
+openapi: 3.1.0
+info:
+  title: actors
+  version: 1.0.0
+paths:
+  /whoami:
+    get:
+      operationId: whoami
+      responses:
+        "200":
+          description: номер актора, обработавшего запрос
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actor:
+                    type: integer
+                required:
+                  - actor

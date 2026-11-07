@@ -1,6 +1,13 @@
 
 # every file in /test/ dir matching test_*.cpp added as test
 
+svarg_generate_cxx(
+    TARGET    btye_test_specs
+    SPECS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/specs
+    OUT_DIR   ${CMAKE_CURRENT_BINARY_DIR}/generated
+    SPECS     actors_api.yaml
+)
+
 file(GLOB btye_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp")
 
 foreach(test_src ${btye_TESTS})
@@ -9,7 +16,7 @@ foreach(test_src ${btye_TESTS})
 
     add_executable(${test_name} ${test_src})
 
-    target_link_libraries(${test_name} PRIVATE btyelib moko3lib)
+    target_link_libraries(${test_name} PRIVATE btyelib moko3lib btye_test_specs)
     
     set_target_properties(${test_name} PROPERTIES
 		LINKER_LANGUAGE CXX
