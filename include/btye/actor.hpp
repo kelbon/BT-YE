@@ -69,9 +69,15 @@ struct actor {
 // акторам
 [[nodiscard]] std::span<actor> all_actors() noexcept;
 
-// Запускает задачу на текущем акторе (только на акторе) как фоновую: пока выполняется хоть одна фоновая
-// задача, циклы всех акторов живы и задача может прыгать на любые акторы. Исключение из задачи - лог.
-// Запуск после того, как остановка сняла удержания циклов, - нарушение контракта
+// актор с номером id, с любого потока (как all_actors)
+[[nodiscard]] inline actor& get_actor(size_t id) noexcept {
+  assert(id < all_actors().size());
+  return all_actors()[id];
+}
+
+// Запускает задачу на текущем акторе (только на акторе) как фоновую: пока идёт хоть одна фоновая задача,
+// циклы всех акторов живы. Исключение из задачи - лог.
+// Если stopped() у своего актора - только из фоновой задачи или at_exit
 void run_in_background(dd::task<void>);
 
 namespace noexport {
@@ -101,9 +107,16 @@ struct jump_on_actor : dd::task_node {
 }  // namespace noexport
 
 // co_await jump_on(actor): продолжить на акторе. Уже на нём - продолжает сразу, без очереди.
-// С любого потока. Перегрузка для ADL: неквалифицированный jump_on внутри kelcoro тоже выберет её
+// С любого потока. Перегрузка для ADL: неквалифицированный jump_on внутри kelcoro тоже выберет её.
+// Если stopped() у своего актора, на другой актор - только из фоновой задачи или at_exit: иначе цикл
+// цели мог уже закончиться и задача не выполнится
 [[nodiscard]] inline noexport::jump_on_actor<true> jump_on(actor& a) noexcept {
   return noexport::jump_on_actor<true>(a);
+}
+
+// co_await jump_on(id): то же для актора с номером id
+[[nodiscard]] inline noexport::jump_on_actor<true> jump_on_actor(size_t id) noexcept {
+  return jump_on(get_actor(id));
 }
 
 // co_await yield(): уступить исполнение - встать в конец очереди текущего актора. Только на акторе

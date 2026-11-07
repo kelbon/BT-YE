@@ -38,6 +38,31 @@ TEST("main on actor 0, jumps between actors") {
   REQUIRE(all_actors().empty() && !this_actor());
 }
 
+TEST("jump_on by id") {
+  std::vector<size_t> visited;
+  std::atomic_size_t foreign_visited = 0;
+  int code = btye::run(actors(3), [&]() -> dd::task<int> {
+    for (size_t id : {2u, 0u, 1u}) {
+      co_await btye::jump_on_actor(id);
+      visited.push_back(this_actor()->id());
+    }
+    REQUIRE(&btye::get_actor(1) == this_actor());
+    std::thread t([&] {
+      foreign_visited = []() -> dd::async_task<size_t> {
+        co_await btye::jump_on_actor(2);
+        co_return this_actor()->id();
+      }()
+                                    .get();
+    });
+    while (foreign_visited == 0)
+      co_await yield();
+    t.join();
+    co_return 0;
+  });
+  REQUIRE(code == 0 && foreign_visited == 2);
+  REQUIRE((visited == std::vector<size_t>{2, 0, 1}));
+}
+
 TEST("jump_on the current actor does not suspend, yield does") {
   std::vector<int> order;
   int code = btye::run(actors(2), [&]() -> dd::task<int> {
