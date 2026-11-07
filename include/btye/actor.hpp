@@ -55,6 +55,15 @@ struct actor {
   void attach(dd::task_node* n) {
     ctx.attach(n);
   }
+
+  // Контекст актора. Не трогать, если не понимаешь, зачем он нужен: для hidi есть local_io_ref(), для
+  // таймеров - create_timer() (btye/io.hpp).
+  // Циклом управляет btye::run (run, poll, stop, restart, start_task, end_task не вызывать), контекст
+  // разрушается в конце run. Можно вызывать с любого потока, а что можно делать с контекстом с чужого
+  // потока - определяет его реализация (attach и rebind_context можно)
+  [[nodiscard]] hidi::any_io_context& ioctx() noexcept {
+    return ctx;
+  }
 };
 
 // Актор текущего потока. nullptr - поток не актор

@@ -36,10 +36,6 @@ struct app_state {
     a.idx = i;
   }
 
-  static hidi::any_io_context& get_ioctx(actor& a) noexcept {
-    return a.ctx;
-  }
-
   static void run_loop(actor& a) noexcept {
     a.ctx.run();
   }
@@ -165,8 +161,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
 
   auto create_context = [&](actor& a) noexcept {
     std::lock_guard l(factory_mtx);
-    app_state::get_ioctx(a) = factory();   // вызов на потоке акторе
-    app_state::get_ioctx(a).start_task();  // снимется в release_actors
+    a.ioctx() = factory();   // вызов на потоке акторе
+    a.ioctx().start_task();  // снимется в release_actors
   };
   actor& a0 = actors[0];
   current_actor = &a0;
@@ -184,7 +180,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
       ready.count_down();
       app_state::run_loop(a);
       loops_done.arrive_and_wait();
-      app_state::get_ioctx(a).reset();
+      a.ioctx().reset();
       current_actor = nullptr;
     });
   }
@@ -196,7 +192,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   app_state::run_loop(a0);
   foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
-  app_state::get_ioctx(a0).reset();
+  a0.ioctx().reset();
   current_actor = nullptr;
   for (std::thread& t : threads)
     t.join();
