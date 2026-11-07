@@ -24,6 +24,9 @@ struct app_options {
   // SIGINT/SIGTERM (Windows - Ctrl+C, Ctrl+Break) вызывают request_stop. Когда остановка началась, повторный
   // сигнал обрабатывается системой как обычно (обычно завершает процесс)
   bool handle_interrupt = true;
+  // при падении (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS) печатает сигнал и стек в stderr, затем процесс
+  // падает как без обработчика. Обработчики ставятся на время run
+  bool handle_crash = true;
   // TODO bind2cpu - биндить ли акторов к тредам
   // TODO какой-то выбор io, видимо через фактори
   // TODO? размер стека файбера/потока + ставить ли имена потокам (ну типа актор1 актор2)

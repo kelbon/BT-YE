@@ -11,6 +11,7 @@ add_library(btyelib STATIC
     src/app.cpp
     src/io.cpp
     src/interrupt.cpp
+    src/crash.cpp
 )
 
 target_include_directories(btyelib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -20,6 +21,7 @@ target_link_libraries(btyelib PUBLIC
     anyanylib
     kelcorolib
     hidilib
+    Boost::stacktrace
     zallib
 )
 

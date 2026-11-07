@@ -1,5 +1,6 @@
 #include "btye/app.hpp"
 
+#include "crash.hpp"
 #include "interrupt.hpp"
 
 #include <hidi/asio/io.hpp>
@@ -158,6 +159,9 @@ void request_stop() noexcept {
 
 int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_factory_t factory) {
   using noexport::app_state;
+  aa::move_only_fn<void()> restore_crash_handlers;
+  if (opts.handle_crash)
+    restore_crash_handlers = noexport::handle_crash();
   size_t n = opts.actors_count ? opts.actors_count : std::max(1u, std::thread::hardware_concurrency());
   std::unique_ptr<actor[]> actors(new actor[n]);
   app_state s{.actors = {actors.get(), n}};
@@ -205,6 +209,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   current_actor = nullptr;
   for (std::thread& t : threads)
     t.join();
+  if (restore_crash_handlers)
+    restore_crash_handlers();
   if (s.exit_code == 0 && s.exit_callback_failed)
     return 1;
   return s.exit_code;
