@@ -5,6 +5,7 @@
 
 #include <hidi/h2client.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <map>
 #include <system_error>
@@ -77,6 +78,47 @@ APP_TEST("mt_server: listen from another actor, error returns to the caller", .a
   co_await server.shutdown();
   REQUIRE(error_on_caller);
   REQUIRE((answers == std::map<char, int>{{'0', 1}, {'1', 1}, {'2', 1}}));
+}
+
+APP_TEST("mt_server: stopped in the servers phase of the stop", .actors_count = 3) {
+  btye::mt_server<id_server> server;
+  co_await server.start(nullptr);
+  hidi::internet_address addr = server.listen0(localhost());
+  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 3));
+  btye::request_stop();
+  co_await btye::wait_stopped();
+  // уже остановлен фазой: явная остановка ничего не делает, разрушение без неё
+  co_await server.shutdown();
+  REQUIRE((answers == std::map<char, int>{{'0', 1}, {'1', 1}, {'2', 1}}));
+}
+
+APP_TEST("mt_server: concurrent shutdowns - one stop, others wait for its end", .actors_count = 3) {
+  btye::mt_server<id_server> server;
+  co_await server.start(nullptr);
+  (void)server.listen0(localhost());
+  std::atomic_size_t returned = 0;
+  // каждый вернулся на свой актор, когда серверы уже остановлены
+  co_await btye::invoke_on_all([&]() -> dd::task<void> {
+    size_t id = local_actor()->id();
+    co_await server.shutdown();
+    if (local_actor()->id() == id)
+      ++returned;
+  });
+  REQUIRE(returned == 3);
+  // остановка приложения его уже не трогает
+  btye::request_stop();
+  co_await btye::wait_stopped();
+}
+
+APP_TEST("mt_server: destroyed while running is terminated in the background", .actors_count = 3) {
+  {
+    btye::mt_server<id_server> server;
+    co_await server.start(nullptr);
+    hidi::internet_address addr = server.listen0(localhost());
+    std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 3));
+    REQUIRE(answers.size() == 3);
+  }
+  // остановка идёт в фоне и держит циклы: приложение закончится после неё
 }
 
 // конструктор с дополнительным аргументом после контекста
