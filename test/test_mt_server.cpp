@@ -12,17 +12,8 @@
 
 using namespace std::chrono_literals;
 using btye::local_actor;
-
-// отвечает номером актора, на котором обработан запрос
-struct id_server : hidi::h2server {
-  using hidi::h2server::h2server;
-
-  dd::task<hidi::http_response> handle_request(hidi::http_request, hidi::request_context) override {
-    hidi::http_response rsp{.status = 200};
-    rsp.body.push_back(hidi::byte_t('0' + local_actor()->id()));
-    co_return rsp;
-  }
-};
+using btye::test::id_server;
+using btye::test::localhost;
 
 // по запросу на каждом новом соединении (свой h2client)
 static dd::task<std::map<char, int>> ask(hidi::internet_address addr, int connections) {
@@ -35,10 +26,6 @@ static dd::task<std::map<char, int>> ask(hidi::internet_address addr, int connec
     co_await client.graceful_stop();
   }
   co_return answers;
-}
-
-static hidi::server_endpoint localhost() {
-  return {.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)};
 }
 
 APP_TEST("mt_server: connections distributed over actors", .actors_count = 3) {

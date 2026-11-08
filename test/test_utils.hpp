@@ -3,6 +3,7 @@
 #include "btye/app.hpp"
 
 #include <hidi/asio/io_impl.hpp>
+#include <hidi/h2server.hpp>
 
 #include <moko3/moko3.hpp>
 
@@ -12,6 +13,22 @@ namespace btye::test {
 
 inline app_options actors(size_t n) {
   return app_options{.actors_count = n};
+}
+
+// отвечает номером актора, на котором обработан запрос
+struct id_server : hidi::h2server {
+  using hidi::h2server::h2server;
+
+  dd::task<hidi::http_response> handle_request(hidi::http_request, hidi::request_context) override {
+    hidi::http_response rsp{.status = 200};
+    rsp.body.push_back(hidi::byte_t('0' + local_actor_ref().id()));
+    co_return rsp;
+  }
+};
+
+// 127.0.0.1, порт выбирает система
+inline hidi::server_endpoint localhost() {
+  return {.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)};
 }
 
 // контекст asio, но не hidi::asio_io: btye идёт по путям для любого контекста (прерывание через поток

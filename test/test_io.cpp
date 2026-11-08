@@ -13,19 +13,9 @@
 
 using namespace std::chrono_literals;
 using btye::local_actor;
+using btye::test::id_server;
 
 using btye::test::actors;
-
-// отвечает номером актора, на котором обработан запрос
-struct id_server : hidi::h2server {
-  using hidi::h2server::h2server;
-
-  dd::task<hidi::http_response> handle_request(hidi::http_request, hidi::request_context) override {
-    hidi::http_response rsp{.status = 200};
-    rsp.body.push_back(hidi::byte_t('0' + local_actor()->id()));
-    co_return rsp;
-  }
-};
 
 TEST("h2server and h2client on actor contexts") {
   std::string answer;
