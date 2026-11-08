@@ -104,7 +104,7 @@ struct sigwait_interrupt {
 };
 
 static aa::move_only_fn<void() noexcept> fallback_interrupt(actor& a0) {
-  return [s = std::make_unique<sigwait_interrupt>(a0)]() mutable { s.reset(); };
+  return [s = std::make_unique<sigwait_interrupt>(a0)]() mutable noexcept { s.reset(); };
 }
 
 #endif
