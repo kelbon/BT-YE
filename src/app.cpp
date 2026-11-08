@@ -29,7 +29,7 @@ struct app_state {
   // + 1 от main, + 1 пока не прошёл stop_actors
   std::atomic_size_t background = 2;
   // только на акторе 0
-  aa::move_only_fn<void()> stop_interrupt;
+  aa::move_only_fn<void() noexcept> stop_interrupt;
   // только на акторе 0
   bool stop_started = false;
   // пишутся по ходу `main` и остановки, читаются после конца циклов
@@ -159,7 +159,7 @@ void request_stop() noexcept {
 
 int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_factory_t factory) {
   using noexport::app_state;
-  aa::move_only_fn<void()> restore_crash_handlers;
+  aa::move_only_fn<void() noexcept> restore_crash_handlers;
   if (opts.handle_crash)
     restore_crash_handlers = noexport::handle_crash();
   size_t n = opts.actors_count ? opts.actors_count : std::max(1u, std::thread::hardware_concurrency());

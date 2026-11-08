@@ -23,7 +23,7 @@ static void on_crash(int sig) {
   std::raise(sig);
 }
 
-aa::move_only_fn<void()> handle_crash() {
+aa::move_only_fn<void() noexcept> handle_crash() {
   using handler_t = void (*)(int);
   std::array<handler_t, crash_signals.size()> old;
   for (size_t i = 0; i < crash_signals.size(); ++i)

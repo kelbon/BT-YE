@@ -20,7 +20,7 @@
 namespace btye::noexport {
 
 // asio: сигнал приходит в цикл актора 0 через boost::asio::signal_set, без своего потока
-static aa::move_only_fn<void()> asio_interrupt(boost::asio::io_context& io) {
+static aa::move_only_fn<void() noexcept> asio_interrupt(boost::asio::io_context& io) {
   auto set = std::make_unique<boost::asio::signal_set>(io, SIGINT, SIGTERM);
 #ifdef SIGBREAK
   set->add(SIGBREAK);
@@ -59,7 +59,7 @@ static BOOL WINAPI console_handler(DWORD event) {
 }
 
 // не asio: SetConsoleCtrlHandler
-static aa::move_only_fn<void()> fallback_interrupt(actor& a0) {
+static aa::move_only_fn<void() noexcept> fallback_interrupt(actor& a0) {
   console_actor = &a0;
   SetConsoleCtrlHandler(console_handler, TRUE);
   return [] {
@@ -103,13 +103,13 @@ struct sigwait_interrupt {
   }
 };
 
-static aa::move_only_fn<void()> fallback_interrupt(actor& a0) {
+static aa::move_only_fn<void() noexcept> fallback_interrupt(actor& a0) {
   return [s = std::make_unique<sigwait_interrupt>(a0)]() mutable { s.reset(); };
 }
 
 #endif
 
-aa::move_only_fn<void()> handle_interrupt(actor& a0) {
+aa::move_only_fn<void() noexcept> handle_interrupt(actor& a0) {
   if (hidi::asio_ref_io* io = asio_of(a0.ioctx()))
     return asio_interrupt(io->ioctx);
   return fallback_interrupt(a0);

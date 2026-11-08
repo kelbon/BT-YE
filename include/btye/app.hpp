@@ -11,7 +11,7 @@ namespace btye {
 // вызывается на потоке каждого актора, никогда одновременно
 // исключение из фабрики вызывает std::terminate
 // когда контексты созданы на всех акторах, фабрика разрушается (до запуска `main`)
-using actor_context_factory_t = aa::move_only_fn<hidi::any_io_context()>;
+using actor_context_factory_t = aa::move_only_fn<hidi::any_io_context() noexcept>;
 
 // TODO опции может принимать
 actor_context_factory_t default_actor_context_factory();

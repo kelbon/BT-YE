@@ -15,7 +15,7 @@ namespace btye {
 inline constexpr per_actor_param local_io_ref_param{[] { return local_io_ref(); }};
 
 // выбор актора для соединения по кругу среди всех
-inline aa::move_only_fn<size_t()> round_robin() {
+inline aa::move_only_fn<size_t() noexcept> round_robin() {
   return [n = size_t(0)]() mutable { return n++ % all_actors().size(); };
 }
 
@@ -37,7 +37,7 @@ struct mt_server {
   };
   per_actor<holder> servers;
   // вызывается только на акторе 0, где идёт раздача
-  aa::move_only_fn<size_t()> choose;
+  aa::move_only_fn<size_t() noexcept> choose;
 
   // вызывается на акторе 0 для каждого принятого соединения: привязывает соединение к контексту выбранного
   // актора и отдаёт серверу на нём. Если привязать не удалось, соединение закрывается
@@ -57,7 +57,7 @@ struct mt_server {
 
  public:
   // `choose` возвращает номер актора для очередного соединения, вызывается на акторе 0
-  explicit mt_server(aa::move_only_fn<size_t()> choose = round_robin()) : choose(std::move(choose)) {
+  explicit mt_server(aa::move_only_fn<size_t() noexcept> choose = round_robin()) : choose(std::move(choose)) {
     assert(this->choose);
   }
 

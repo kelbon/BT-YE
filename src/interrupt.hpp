@@ -10,6 +10,6 @@ namespace btye::noexport {
 // актора 0 после создания его контекста и до создания потоков остальных акторов.
 // Возвращает функцию, которая заканчивает обработку, её вызывают на акторе 0. После неё сигналы
 // обрабатывает система
-aa::move_only_fn<void()> handle_interrupt(actor& a0);
+aa::move_only_fn<void() noexcept> handle_interrupt(actor& a0);
 
 }  // namespace btye::noexport
