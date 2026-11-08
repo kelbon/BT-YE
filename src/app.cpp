@@ -86,6 +86,7 @@ struct app_state {
     for (actor& a : s.actors) {
       co_await jump_on(a);
       a.is_stopped = true;
+      a.stop_src.request_abort();
       for (auto& cb : a.exit_callbacks | std::views::reverse) {
         try {
           cb();

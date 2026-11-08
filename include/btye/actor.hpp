@@ -10,6 +10,8 @@
 #include <kelcoro/task.hpp>
 #include <hidi/utils/any_io_context.hpp>
 
+#include "btye/abort_source.hpp"
+
 namespace btye {
 
 namespace noexport {
@@ -26,6 +28,7 @@ struct actor {
   noexport::app_state* app = nullptr;
   // только на потоке актора
   std::vector<aa::move_only_fn<void()>> exit_callbacks;
+  abort_source stop_src;
   size_t idx = 0;
   bool is_stopped = false;
 
@@ -50,6 +53,12 @@ struct actor {
 
   // вызовется до остановки, может создавать фоновые задачи - их дождутся
   void at_exit(aa::move_only_fn<void()>);
+
+  // отменяется, когда до актора дошла остановка: после stopped() == true, до колбеков at_exit. Только на этом
+  // акторе
+  [[nodiscard]] abort_source& stop_source() noexcept {
+    return stop_src;
+  }
 
   // можно вызывать с любого потока. Всегда ставит задачу в очередь
   void attach(dd::task_node* n) {
