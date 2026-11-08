@@ -60,7 +60,7 @@ TEST("abort_source: destroyed before subscriptions") {
   REQUIRE(!called);
 }
 
-TEST("actor::stop_source is aborted when the stop reaches the actor") {
+TEST("actor::stop_source is aborted at the start of the stop, before phases") {
   std::vector<int> order;
   int code = btye::run(btye::app_options{.actors_count = 2}, [&]() -> dd::task<int> {
     co_await btye::jump_on_actor(1);
@@ -68,9 +68,11 @@ TEST("actor::stop_source is aborted when the stop reaches the actor") {
       btye::actor& a = btye::local_actor_ref();
       btye::abort_source::subscription sub =
           a.stop_source().subscribe([&] noexcept { order.push_back(a.stopped() ? 1 : -1); });
-      a.at_exit([&] { order.push_back(2); });
-      while (!a.stopped())
-        co_await btye::yield();
+      btye::stop_subscription phase = a.on_stop(btye::stop_phases_e::first, [&]() -> dd::task<void> {
+        order.push_back(2);
+        co_return;
+      });
+      co_await btye::wait_stopped();
     }(order));
     co_return 0;
   });

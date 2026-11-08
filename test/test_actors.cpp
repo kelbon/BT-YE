@@ -1,12 +1,14 @@
-#include "btye/app.hpp"
+#include "test_utils.hpp"
+
+#include "btye/invoke.hpp"
 
 #include <hidi/asio/io.hpp>
 #include <kelcoro/job.hpp>
 #include <kelcoro/latch.hpp>
 
-#include <moko3/moko3.hpp>
-
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -16,9 +18,7 @@
 using btye::all_actors;
 using btye::local_actor;
 
-static btye::app_options actors(size_t n) {
-  return btye::app_options{.actors_count = n};
-}
+using btye::test::actors;
 
 using btye::yield;
 
@@ -212,32 +212,78 @@ TEST("main returns to actor 0 after stop") {
   REQUIRE(code == 9);
 }
 
-TEST("at_exit: order and stopped") {
-  // (актор, номер колбэка) в порядке вызова
-  std::vector<std::pair<size_t, int>> calls;
-  bool stopped_in_callback = true;
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    for (btye::actor& a : all_actors()) {
-      co_await btye::jump_on(a);
-      for (int i = 1; i <= 2; ++i) {
-        a.at_exit([&, i] {
-          calls.emplace_back(local_actor()->id(), i);
-          stopped_in_callback = stopped_in_callback && local_actor()->stopped();
-        });
+TEST("stop phases: in order, a phase ends on all actors before the next") {
+  constexpr size_t n = 3;
+  std::array<std::atomic_size_t, size_t(btye::stop_phases_e::COUNT)> finished{};
+  std::atomic_bool in_order = true, stopped_in_handlers = true;
+  // подписки живут до остановки, у каждого актора свои
+  std::array<std::vector<btye::stop_subscription>, n> subs;
+  int code = btye::run(actors(n), [&]() -> dd::task<int> {
+    co_await btye::invoke_on_all([&]() -> dd::task<void> {
+      btye::actor& a = btye::local_actor_ref();
+      for (size_t p = 0; p < size_t(btye::stop_phases_e::COUNT); ++p) {
+        subs[a.id()].push_back(a.on_stop(btye::stop_phases_e(p), [&, p]() -> dd::task<void> {
+          if (p > 0 && finished[p - 1] != n)
+            in_order = false;
+          if (!local_actor()->stopped())
+            stopped_in_handlers = false;
+          // без границы между фазами следующая успела бы начаться на другом акторе
+          for (int i = 0; i < 3; ++i)
+            co_await yield();
+          ++finished[p];
+        }));
       }
+      co_return;
+    });
+    co_return 0;
+  });
+  REQUIRE(code == 0 && in_order && stopped_in_handlers);
+  for (auto& f : finished)
+    REQUIRE(f == n);
+}
+
+TEST("stop subscription destroyed before the stop is not called") {
+  bool called = false;
+  int code = btye::run(actors(1), [&]() -> dd::task<int> {
+    {
+      btye::stop_subscription sub = local_actor()->on_stop(btye::stop_phases_e::servers, [&]() -> dd::task<void> {
+        called = true;
+        co_return;
+      });
+      // перемещённая подписка заменяет исходную
+      btye::stop_subscription moved = std::move(sub);
     }
     co_return 0;
   });
-  REQUIRE(code == 0 && stopped_in_callback);
-  REQUIRE((calls == std::vector<std::pair<size_t, int>>{{0, 2}, {0, 1}, {1, 2}, {1, 1}, {2, 2}, {2, 1}}));
+  REQUIRE(code == 0 && !called);
 }
 
-TEST("background task started from at_exit keeps all loops alive") {
-  // асинхронная остановка сервиса: колбэк запускает фоновую задачу, которая ходит по акторам уже после
-  // того, как остановка прошла все акторы и main завершилась
+TEST("wait_stopped: after all phases, returns to the caller actor") {
+  bool phase_done = false;
+  bool after_phases = false;
+  btye::stop_subscription sub;
+  int code = btye::run(actors(2), [&]() -> dd::task<int> {
+    sub = local_actor()->on_stop(btye::stop_phases_e::last, [&]() -> dd::task<void> {
+      co_await yield();
+      phase_done = true;
+    });
+    co_await btye::jump_on_actor(1);
+    btye::request_stop();
+    co_await btye::wait_stopped();
+    after_phases = phase_done && local_actor()->id() == 1;
+    // после остановки - сразу
+    co_await btye::wait_stopped();
+    co_return 3;
+  });
+  REQUIRE(code == 3 && after_phases);
+}
+
+TEST("background task started from a stop handler keeps all loops alive") {
+  // обработчик запускает фоновую задачу, которая ходит по акторам уже после всех фаз и конца main
   std::vector<size_t> visited;
+  btye::stop_subscription sub;
   int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    local_actor()->at_exit([&] {
+    sub = local_actor()->on_stop(btye::stop_phases_e::last, [&]() -> dd::task<void> {
       btye::run_in_background([](std::vector<size_t>& visited) -> dd::task<void> {
         for (int round = 0; round < 3; ++round) {
           for (btye::actor& a : all_actors()) {
@@ -247,6 +293,7 @@ TEST("background task started from at_exit keeps all loops alive") {
           }
         }
       }(visited));
+      co_return;
     });
     co_return 4;
   });
@@ -254,19 +301,16 @@ TEST("background task started from at_exit keeps all loops alive") {
   REQUIRE((visited == std::vector<size_t>{0, 1, 2, 0, 1, 2, 0, 1, 2}));
 }
 
-TEST("main waits for stop from a foreign thread") {
+TEST("main waits for the stop requested from a foreign thread") {
   bool stopped = false;
-  std::optional<dd::latch> stop;
   int code = btye::run(actors(2), [&]() -> dd::task<int> {
-    stop.emplace(1, *local_actor());
-    local_actor()->at_exit([&] { stop->count_down(); });
     std::thread t([] {
       [](btye::actor& a) -> dd::job {
         co_await btye::jump_on(a);
         btye::request_stop();
       }(all_actors()[1]);
     });
-    co_await stop->wait();
+    co_await btye::wait_stopped();
     t.join();
     // main - фоновая задача: после остановки можно ходить по акторам
     for (btye::actor& a : all_actors())
@@ -277,16 +321,22 @@ TEST("main waits for stop from a foreign thread") {
   REQUIRE(code == 5 && stopped);
 }
 
-TEST("exceptions from at_exit and background tasks") {
+TEST("exceptions from stop handlers and background tasks are only logged") {
   bool other_called = false;
+  btye::stop_subscription throws, other;
   int code = btye::run(actors(1), [&]() -> dd::task<int> {
-    local_actor()->at_exit([&] { other_called = true; });
-    local_actor()->at_exit([] { throw std::runtime_error("at_exit failed"); });
+    throws = local_actor()->on_stop(btye::stop_phases_e::first, []() -> dd::task<void> {
+      throw std::runtime_error("stop handler failed");
+      co_return;
+    });
+    other = local_actor()->on_stop(btye::stop_phases_e::first, [&]() -> dd::task<void> {
+      other_called = true;
+      co_return;
+    });
     co_return 0;
   });
-  REQUIRE(code == 1 && other_called);
+  REQUIRE(code == 0 && other_called);
 
-  // исключение из фоновой задачи - только лог
   code = btye::run(actors(2), []() -> dd::task<int> {
     btye::run_in_background([]() -> dd::task<void> {
       co_await btye::jump_on(all_actors()[1]);

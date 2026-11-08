@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cassert>
 #include <coroutine>
 #include <span>
@@ -11,12 +12,26 @@
 #include <hidi/utils/any_io_context.hpp>
 
 #include "btye/abort_source.hpp"
+#include "btye/subscription.hpp"
 
 namespace btye {
 
 namespace noexport {
 struct app_state;
 }
+
+// Остановка приложения идёт по фазам по порядку. Фаза проходит на всех акторах, и следующая начинается,
+// когда закончились все обработчики предыдущей на всех акторах
+enum struct stop_phases_e : size_t {
+  first,
+  servers,  // перестают принимать запросы и дожидаются текущих
+  clients,  // после серверов: обработчики запросов ещё могли ими пользоваться
+  last,
+  COUNT,
+};
+
+// Подписка на фазу остановки, см. actor::on_stop. Отписывается при разрушении
+using stop_subscription = noexport::subscription<aa::move_only_fn<dd::task<void>()>, noexport::app_state>;
 
 // Поток со своим циклом событий. Создаются и живут внутри btye::run
 // TODO actor local
@@ -26,7 +41,7 @@ struct actor {
   hidi::any_io_context ctx;
   noexport::app_state* app = nullptr;
   // только на потоке актора
-  std::vector<aa::move_only_fn<void()>> exit_callbacks;
+  std::array<noexport::subscriptions_list<stop_subscription>, size_t(stop_phases_e::COUNT)> stop_handlers;
   abort_source stop_src;
   size_t idx = 0;
   bool is_stopped = false;
@@ -50,11 +65,13 @@ struct actor {
     return is_stopped;
   }
 
-  // вызовется до остановки, может создавать фоновые задачи - их дождутся
-  void at_exit(aa::move_only_fn<void()>);
+  // `handler` вызывается на этом акторе в фазе `p`, если подписка жива, его задачу дожидаются. Исключение -
+  // лог. Только на этом акторе, до остановки.
+  // Если обработчик - остановка объекта, которую можно вызвать и явно, явная остановка сначала разрушает
+  // подписку
+  [[nodiscard]] stop_subscription on_stop(stop_phases_e p, aa::move_only_fn<dd::task<void>()> handler);
 
-  // отменяется, когда до актора дошла остановка: после stopped() == true, до колбеков at_exit. Только на этом
-  // акторе
+  // отменяется в начале остановки, на всех акторах до фаз: после stopped() == true. Только на этом акторе
   [[nodiscard]] abort_source& stop_source() noexcept {
     return stop_src;
   }

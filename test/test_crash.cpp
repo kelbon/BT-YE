@@ -1,6 +1,4 @@
-#include "btye/app.hpp"
-
-#include <moko3/moko3.hpp>
+#include "test_utils.hpp"
 
 #include <csignal>
 #include <string>
@@ -10,9 +8,7 @@
   #include <unistd.h>
 #endif
 
-static btye::app_options actors(size_t n) {
-  return btye::app_options{.actors_count = n};
-}
+using btye::test::actors;
 
 static void user_handler(int) {
 }

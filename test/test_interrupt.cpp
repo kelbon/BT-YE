@@ -1,4 +1,4 @@
-#include "app_test.hpp"
+#include "test_utils.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -7,9 +7,7 @@
   #include <unistd.h>
 #endif
 
-static btye::app_options actors(size_t n) {
-  return btye::app_options{.actors_count = n};
-}
+using btye::test::actors;
 
 // сигнал процессу. POSIX - kill: raise доставил бы его только текущему потоку, где сигнал заблокирован для
 // sigwait, и поток sigwait бы его не получил
@@ -37,12 +35,15 @@ TEST("SIGTERM and SIGINT request stop") {
       int code = btye::run(
           actors(3),
           [&]() -> dd::task<int> {
-            bool on_exit = false;
-            btye::local_actor()->at_exit([&] { on_exit = true; });
+            bool on_stop = false;
+            btye::stop_subscription sub =
+                btye::local_actor_ref().on_stop(btye::stop_phases_e::first, [&]() -> dd::task<void> {
+                  on_stop = true;
+                  co_return;
+                });
             send_signal(sig);
-            while (!btye::local_actor()->stopped())
-              co_await btye::yield();
-            stopped = on_exit;
+            co_await btye::wait_stopped();
+            stopped = on_stop;
             co_return 4;
           },
           std::move(factory));

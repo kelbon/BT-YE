@@ -1,17 +1,14 @@
-#include "btye/app.hpp"
+#include "test_utils.hpp"
+
 #include "btye/invoke.hpp"
 #include "btye/sleep.hpp"
-
-#include <moko3/moko3.hpp>
 
 #include <chrono>
 
 using namespace std::chrono_literals;
 using btye::local_actor;
 
-static btye::app_options actors(size_t n) {
-  return btye::app_options{.actors_count = n};
-}
+using btye::test::actors;
 
 TEST("sleep: time is out") {
   int code = btye::run(actors(2), []() -> dd::task<int> {

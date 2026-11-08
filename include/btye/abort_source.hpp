@@ -1,45 +1,19 @@
 #pragma once
 
-#include <boost/intrusive/list.hpp>
-
 #include <anyany/anyany.hpp>
+
+#include "btye/subscription.hpp"
 
 namespace btye {
 
 // Отмена на одном акторе (используется только с его потока). request_abort вызывает колбеки всех подписок,
 // после этого aborted() навсегда true
 struct abort_source {
-  // Подписка на отмену, см. subscribe. Отписывается при разрушении. Пустая (по умолчанию или после
-  // перемещения из неё) ни на что не подписана
-  struct subscription
-      : boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
-   private:
-    aa::move_only_fn<void() noexcept> cb;
-
-    friend abort_source;
-
-    explicit subscription(aa::move_only_fn<void() noexcept> cb) noexcept : cb(std::move(cb)) {
-    }
-
-   public:
-    subscription() = default;
-
-    // встаёт в список источника на место `o`
-    subscription(subscription&& o) noexcept : cb(std::move(o.cb)) {
-      swap_nodes(o);
-    }
-    subscription& operator=(subscription&& o) noexcept {
-      if (this != &o) {
-        unlink();
-        cb = std::move(o.cb);
-        swap_nodes(o);
-      }
-      return *this;
-    }
-  };
+  // Подписка на отмену, см. subscribe. Отписывается при разрушении
+  using subscription = noexport::subscription<aa::move_only_fn<void() noexcept>, abort_source>;
 
  private:
-  boost::intrusive::list<subscription, boost::intrusive::constant_time_size<false>> subscriptions;
+  noexport::subscriptions_list<subscription> subscriptions;
   bool is_aborted = false;
 
  public:
@@ -72,7 +46,7 @@ struct abort_source {
     while (!subscriptions.empty()) {
       subscription& s = subscriptions.front();
       subscriptions.pop_front();
-      s.cb();
+      s.fn();
     }
   }
 };

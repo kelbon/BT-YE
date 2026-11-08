@@ -1,4 +1,5 @@
-#include "btye/app.hpp"
+#include "test_utils.hpp"
+
 #include "btye/invoke.hpp"
 #include "btye/io.hpp"
 
@@ -7,17 +8,13 @@
 #include <hidi/h2client.hpp>
 #include <hidi/h2server.hpp>
 
-#include <moko3/moko3.hpp>
-
 #include <atomic>
 #include <chrono>
 
 using namespace std::chrono_literals;
 using btye::local_actor;
 
-static btye::app_options actors(size_t n) {
-  return btye::app_options{.actors_count = n};
-}
+using btye::test::actors;
 
 // отвечает номером актора, на котором обработан запрос
 struct id_server : hidi::h2server {

@@ -1,10 +1,12 @@
 #include "btye/app.hpp"
+#include "btye/invoke.hpp"
 
 #include "crash.hpp"
 #include "interrupt.hpp"
 
 #include <hidi/asio/io.hpp>
 #include <kelcoro/job.hpp>
+#include <kelcoro/road.hpp>
 
 #include <atomic>
 #include <cassert>
@@ -12,7 +14,6 @@
 #include <memory>
 #include <mutex>
 #include <print>
-#include <ranges>
 #include <thread>
 #include <vector>
 
@@ -32,8 +33,11 @@ struct app_state {
   aa::move_only_fn<void() noexcept> stop_interrupt;
   // только на акторе 0
   bool stop_started = false;
-  // пишутся по ходу `main` и остановки, читаются после конца циклов
-  bool exit_callback_failed = false;
+  // только на акторе 0: все фазы остановки прошли
+  bool stop_done = false;
+  // только на акторе 0: wait_stopped
+  dd::awaiters_queue<dd::task_node> stop_waiters;
+  // пишется по ходу `main`, читается после конца циклов
   int exit_code = 0;
 
   static void init_actor(actor& a, app_state& s, size_t i) noexcept {
@@ -45,9 +49,9 @@ struct app_state {
     a.ctx.run();
   }
 
-  static void log_exception(std::string_view where) noexcept {
+  static void log_exception(std::string_view where, std::exception_ptr e) noexcept {
     try {
-      throw;
+      std::rethrow_exception(std::move(e));
     } catch (const std::exception& e) {
       std::println(stderr, "btye: exception from {}: {}", where, e.what());
     } catch (...) {
@@ -71,9 +75,56 @@ struct app_state {
     try {
       co_await std::move(t);
     } catch (...) {
-      log_exception("background task");
+      log_exception("background task", std::current_exception());
     }
     s.background_done();
+  }
+
+  static stop_subscription subscribe_stop(actor& a, stop_phases_e p, aa::move_only_fn<dd::task<void>()> fn) {
+    stop_subscription sub(std::move(fn));
+    a.stop_handlers[size_t(p)].push_back(sub);
+    return sub;
+  }
+
+  // обработчики фазы `p` текущего актора параллельно, ждёт все
+  static dd::task<void> run_phase(stop_phases_e p) {
+    std::vector<dd::task<void>> tasks;
+    for (stop_subscription& sub : local_actor_ref().stop_handlers[size_t(p)]) {
+      try {
+        tasks.push_back(sub.fn());
+      } catch (...) {
+        log_exception("stop handler", std::current_exception());
+      }
+    }
+    auto results = co_await dd::when_all(std::move(tasks));
+    for (auto& r : results)
+      if (!r)
+        log_exception("stop handler", r.error());
+  }
+
+  struct stop_waiter : dd::task_node {
+    app_state& s;
+
+    explicit stop_waiter(app_state& s) noexcept : s(s) {
+    }
+
+    static bool await_ready() noexcept {
+      return false;
+    }
+    void await_suspend(std::coroutine_handle<> h) noexcept {
+      task = h;
+      s.stop_waiters.push(this);
+    }
+    static void await_resume() noexcept {
+    }
+  };
+
+  static dd::task<void> wait_stopped(actor& from) {
+    app_state& s = *from.app;
+    co_await jump_on(s.actors[0]);
+    if (!s.stop_done)
+      co_await stop_waiter(s);
+    co_await jump_on(from);
   }
 
   static dd::job stop_actors(app_state& s) {
@@ -83,20 +134,17 @@ struct app_state {
     // дальше сигналы обрабатывает система: повторный Ctrl+C во время остановки завершает процесс
     if (s.stop_interrupt)
       s.stop_interrupt();
-    for (actor& a : s.actors) {
-      co_await jump_on(a);
+    co_await invoke_on_all([]() -> dd::task<void> {
+      actor& a = local_actor_ref();
       a.is_stopped = true;
       a.stop_src.request_abort();
-      for (auto& cb : a.exit_callbacks | std::views::reverse) {
-        try {
-          cb();
-        } catch (...) {
-          s.exit_callback_failed = true;
-          log_exception("at_exit callback");
-        }
-      }
-      a.exit_callbacks.clear();
-    }
+      co_return;
+    });
+    // invoke_on_all возвращается, когда фаза закончилась на всех акторах
+    for (size_t p = 0; p < size_t(stop_phases_e::COUNT); ++p)
+      co_await invoke_on_all([p] { return run_phase(stop_phases_e(p)); });
+    s.stop_done = true;
+    dd::attach_list(s.actors[0], s.stop_waiters.pop_all());
     s.background_done();
   }
 
@@ -113,7 +161,7 @@ struct app_state {
       code = co_await main();
     } catch (...) {
       code = 1;
-      log_exception("main");
+      log_exception("main", std::current_exception());
     }
     s.exit_code = code;
     // `main` - фоновая задача, циклы живы: вернуться на актор можно всегда
@@ -129,10 +177,10 @@ actor_context_factory_t default_actor_context_factory() {
   return [] noexcept { return hidi::make_asio_io_context(); };
 }
 
-void actor::at_exit(aa::move_only_fn<void()> cb) {
-  assert(current_actor == this && "at_exit must be called on the actor's thread");
-  assert(!is_stopped && "at_exit called after the actor is stopped");
-  exit_callbacks.push_back(std::move(cb));
+stop_subscription actor::on_stop(stop_phases_e p, aa::move_only_fn<dd::task<void>()> handler) {
+  assert(current_actor == this && "on_stop must be called on the actor's thread");
+  assert(!is_stopped && "on_stop called after the stop started");
+  return noexport::app_state::subscribe_stop(*this, p, std::move(handler));
 }
 
 actor* local_actor() noexcept {
@@ -156,6 +204,10 @@ void run_in_background(dd::task<void> t) {
 
 void request_stop() noexcept {
   noexport::app_state::request_stop(local_actor_ref());
+}
+
+dd::task<void> wait_stopped() {
+  return noexport::app_state::wait_stopped(local_actor_ref());
 }
 
 int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_factory_t factory) {
@@ -212,8 +264,6 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
     t.join();
   if (restore_crash_handlers)
     restore_crash_handlers();
-  if (s.exit_code == 0 && s.exit_callback_failed)
-    return 1;
   return s.exit_code;
 }
 

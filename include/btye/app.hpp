@@ -47,7 +47,14 @@ int run(app_options, aa::move_only_fn<dd::task<int>()> main,
 /*
 Останавливает акторов. Можно вызывать только с потока актора
 Повторный вызов noop
+Остановка: на всех акторах stopped() == true и отмена stop_source(), затем фазы (stop_phases_e) по порядку
 */
 void request_stop() noexcept;
+
+// Ждёт конца остановки: прошли все фазы на всех акторах. Возвращается на актор, где вызвана. Только на акторе.
+// Не из обработчика фазы (никогда не дождётся)
+// Так `main` переживает объекты, которые останавливаются в фазах:
+//   co_await server.start(); ...; co_await btye::wait_stopped(); co_return 0;
+dd::task<void> wait_stopped();
 
 }  // namespace btye
