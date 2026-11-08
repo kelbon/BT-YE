@@ -2,8 +2,13 @@ cmake_minimum_required(VERSION 3.21)
 project(btye)
 
 option(btye_ENABLE_TESTING "enables testing" OFF)
-option(btye_ENABLE_ASAN "build ASAN (for CI)" OFF)
-option(btye_ENABLE_UBSAN "build UBSAN (for CI)" OFF)
+set(btye_SANITIZE "" CACHE STRING "value for -fsanitize (for CI), e.g. address,undefined or thread")
+
+# до зависимостей: санитайзер нужен и в их коде
+if(btye_SANITIZE)
+  add_compile_options(-fsanitize=${btye_SANITIZE} -fno-sanitize-recover=all -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=${btye_SANITIZE})
+endif()
 
 include(cmake/deps.cmake)
 
