@@ -142,6 +142,11 @@ struct per_actor {
     stopall.get();  // may be rethrow
   }
 
+  // start начат и stop ещё не закончен
+  [[nodiscard]] bool started() const noexcept {
+    return instances.size() != 0;
+  }
+
   // экземпляр текущего актора
   T& local() noexcept {
     T* t = local_ptr();
