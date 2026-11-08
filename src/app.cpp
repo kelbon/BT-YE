@@ -33,10 +33,8 @@ struct app_state {
   aa::move_only_fn<void() noexcept> stop_interrupt;
   // только на акторе 0
   bool stop_started = false;
-  // только на акторе 0: все фазы остановки прошли
-  bool stop_done = false;
-  // только на акторе 0: wait_stopped
-  dd::awaiters_queue<dd::task_node> stop_waiters;
+  // только на акторе 0: открывается, когда прошли все фазы остановки (wait_stopped)
+  dd::road stopped;
   // пишется по ходу `main`, читается после конца циклов
   int exit_code = 0;
 
@@ -102,28 +100,11 @@ struct app_state {
         log_exception("stop handler", r.error());
   }
 
-  struct stop_waiter : dd::task_node {
-    app_state& s;
-
-    explicit stop_waiter(app_state& s) noexcept : s(s) {
-    }
-
-    static bool await_ready() noexcept {
-      return false;
-    }
-    void await_suspend(std::coroutine_handle<> h) noexcept {
-      task = h;
-      s.stop_waiters.push(this);
-    }
-    static void await_resume() noexcept {
-    }
-  };
-
   static dd::task<void> wait_stopped(actor& from) {
     app_state& s = *from.app;
     co_await jump_on(s.actors[0]);
-    if (!s.stop_done)
-      co_await stop_waiter(s);
+    // после остановки открыта навсегда
+    (void)co_await s.stopped.wait_open();
     co_await jump_on(from);
   }
 
@@ -143,8 +124,7 @@ struct app_state {
     // invoke_on_all возвращается, когда фаза закончилась на всех акторах
     for (size_t p = 0; p < size_t(stop_phases_e::COUNT); ++p)
       co_await invoke_on_all([p] { return run_phase(stop_phases_e(p)); });
-    s.stop_done = true;
-    dd::attach_list(s.actors[0], s.stop_waiters.pop_all());
+    s.stopped.open(s.actors[0]);
     s.background_done();
   }
 
@@ -218,6 +198,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   size_t n = opts.actors_count ? opts.actors_count : std::max(1u, std::thread::hardware_concurrency());
   std::unique_ptr<actor[]> actors(new actor[n]);
   app_state s{.actors = {actors.get(), n}};
+  s.stopped.close();
   for (size_t i = 0; i < n; ++i)
     app_state::init_actor(actors[i], s, i);
 
