@@ -1,11 +1,10 @@
-#include "btye/app.hpp"
+#include "app_test.hpp"
+
 #include "btye/invoke.hpp"
 #include "btye/mt_server.hpp"
 
 #include "actors_api/client.hpp"
 #include "actors_api/server.hpp"
-
-#include <moko3/moko3.hpp>
 
 #include <chrono>
 #include <map>
@@ -38,18 +37,13 @@ static dd::task<std::map<size_t, int>> ask(hidi::internet_address addr, int conn
   co_return answers;
 }
 
-TEST("svarg: generated server under mt_server, generated client on an actor") {
-  std::map<size_t, int> answers;
-  int code = btye::run(btye::app_options{.actors_count = 3}, [&]() -> dd::task<int> {
-    btye::mt_server<whoami_server> server;
-    co_await server.start();
-    hidi::internet_address addr =
-        server.listen0({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
-    answers = co_await btye::invoke_on(2, ask(addr, 6));
-    co_await server.shutdown();
-    co_return 0;
-  });
-  REQUIRE(code == 0);
+APP_TEST("svarg: generated server under mt_server, generated client on an actor", .actors_count = 3) {
+  btye::mt_server<whoami_server> server;
+  co_await server.start();
+  hidi::internet_address addr =
+      server.listen0({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
+  std::map<size_t, int> answers = co_await btye::invoke_on(2, ask(addr, 6));
+  co_await server.shutdown();
   REQUIRE((answers == std::map<size_t, int>{{0, 2}, {1, 2}, {2, 2}}));
 }
 

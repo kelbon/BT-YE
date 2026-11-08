@@ -1,8 +1,4 @@
-#include "btye/app.hpp"
-
-#include <hidi/asio/io_impl.hpp>
-
-#include <moko3/moko3.hpp>
+#include "app_test.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -13,19 +9,6 @@
 
 static btye::app_options actors(size_t n) {
   return btye::app_options{.actors_count = n};
-}
-
-// контекст asio, но не hidi::asio_io: обработка прерывания без asio (поток sigwait)
-struct not_asio_io : hidi::asio_io {
-  using hidi::asio_io::asio_io;
-
-  static void rebind_context(hidi::any_connection_t&, hidi::any_io_context_ref) {
-    std::abort();  // в тесте соединений нет
-  }
-};
-
-static btye::actor_context_factory_t not_asio_factory() {
-  return [] noexcept { return hidi::any_io_context(std::in_place_type<not_asio_io>); };
 }
 
 // сигнал процессу. POSIX - kill: raise доставил бы его только текущему потоку, где сигнал заблокирован для
@@ -50,7 +33,7 @@ TEST("SIGTERM and SIGINT request stop") {
   for (bool asio : asio_paths)
     for (int sig : {SIGTERM, SIGINT}) {
       bool stopped = false;
-      auto factory = asio ? btye::default_actor_context_factory() : not_asio_factory();
+      auto factory = asio ? btye::default_actor_context_factory() : btye::test::not_asio_factory();
       int code = btye::run(
           actors(3),
           [&]() -> dd::task<int> {
@@ -72,7 +55,7 @@ TEST("signal while actors are created is not lost") {
     // контекст актора 0 создаётся первым, дальше обработка прерывания уже включена
     std::atomic_int created = 0;
     auto factory = [&, inner = asio ? btye::default_actor_context_factory()
-                                    : not_asio_factory()]() mutable noexcept {
+                                    : btye::test::not_asio_factory()]() mutable noexcept {
       if (created++ == 1)
         send_signal(SIGTERM);
       return inner();

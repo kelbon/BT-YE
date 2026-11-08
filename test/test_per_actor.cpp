@@ -1,7 +1,6 @@
-#include "btye/app.hpp"
-#include "btye/per_actor.hpp"
+#include "app_test.hpp"
 
-#include <moko3/moko3.hpp>
+#include "btye/per_actor.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -9,10 +8,6 @@
 #include <vector>
 
 using btye::local_actor;
-
-static btye::app_options actors(size_t n) {
-  return btye::app_options{.actors_count = n};
-}
 
 // где создан, остановлен и разрушен каждый экземпляр
 struct journal {
@@ -41,35 +36,31 @@ struct counter {
   }
 };
 
-TEST("per_actor: start, local, invoke, stop") {
+APP_TEST("per_actor: start, local, invoke, stop", .actors_count = 3) {
   journal j(3);
   std::vector<std::thread::id> actor_threads(3);
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    btye::per_actor<counter> c;
-    co_await btye::jump_on(btye::get_actor(1));
-    co_await c.start(&j, 5);
-    REQUIRE(local_actor()->id() == 1 && c.local().value == 5 && c.local().id == 1);
-    co_await c.invoke_on_all([](counter& x) -> dd::task<void> {
-      x.value += int(x.id);
-      co_return;
-    });
-    int on2 = co_await c.invoke_on(2, [](counter& x) -> dd::task<int> { co_return x.value; });
-    REQUIRE(on2 == 7 && local_actor()->id() == 1);
-    co_await c.invoke_on_others([](counter& x) -> dd::task<void> {
-      co_await btye::yield();
-      x.value = 100;
-    });
-    REQUIRE(c.local().value == 6);
-    REQUIRE(co_await c.invoke_on(0, [](counter& x) -> dd::task<int> { co_return x.value; }) == 100);
-    co_await btye::invoke_on_all([&]() -> dd::task<void> {
-      actor_threads[local_actor()->id()] = std::this_thread::get_id();
-      co_return;
-    });
-    co_await c.stop();
-    REQUIRE(local_actor()->id() == 1);
-    co_return 0;
+  btye::per_actor<counter> c;
+  co_await btye::jump_on(btye::get_actor(1));
+  co_await c.start(&j, 5);
+  REQUIRE(local_actor()->id() == 1 && c.local().value == 5 && c.local().id == 1);
+  co_await c.invoke_on_all([](counter& x) -> dd::task<void> {
+    x.value += int(x.id);
+    co_return;
   });
-  REQUIRE(code == 0);
+  int on2 = co_await c.invoke_on(2, [](counter& x) -> dd::task<int> { co_return x.value; });
+  REQUIRE(on2 == 7 && local_actor()->id() == 1);
+  co_await c.invoke_on_others([](counter& x) -> dd::task<void> {
+    co_await btye::yield();
+    x.value = 100;
+  });
+  REQUIRE(c.local().value == 6);
+  REQUIRE(co_await c.invoke_on(0, [](counter& x) -> dd::task<int> { co_return x.value; }) == 100);
+  co_await btye::invoke_on_all([&]() -> dd::task<void> {
+    actor_threads[local_actor()->id()] = std::this_thread::get_id();
+    co_return;
+  });
+  co_await c.stop();
+  REQUIRE(local_actor()->id() == 1);
   std::vector<size_t> ids{0, 1, 2};
   REQUIRE(j.created_on == ids && j.stopped_on == ids && j.destroyed_on == ids);
   REQUIRE(j.threads == actor_threads);
@@ -91,25 +82,22 @@ struct fails_on_2 {
   }
 };
 
-TEST("per_actor: without stop, exception in start") {
+APP_TEST("per_actor: without stop, exception in start", .actors_count = 3) {
   std::vector<size_t> destroyed(3, 0);
   std::string error;
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    btye::per_actor<no_stop> a;
-    co_await a.start();
-    a.local().x = 1;
-    co_await a.stop();
+  btye::per_actor<no_stop> a;
+  co_await a.start();
+  a.local().x = 1;
+  co_await a.stop();
 
-    btye::per_actor<fails_on_2> f;
-    try {
-      co_await f.start(&destroyed);
-    } catch (std::runtime_error& e) {
-      error = e.what();
-    }
-    // созданные разрушены, per_actor пуст и его можно разрушить
-    co_return 0;
-  });
-  REQUIRE(code == 0 && error == "no 2");
+  btye::per_actor<fails_on_2> f;
+  try {
+    co_await f.start(&destroyed);
+  } catch (std::runtime_error& e) {
+    error = e.what();
+  }
+  // созданные разрушены, per_actor пуст и его можно разрушить
+  REQUIRE(error == "no 2");
   REQUIRE((destroyed == std::vector<size_t>{1, 1, 0}));
 }
 
@@ -139,31 +127,27 @@ struct peer : btye::per_actor_peer<peer> {
   }
 };
 
-TEST("per_actor: std::ref, per_actor_param, per_actor_peer") {
+APP_TEST("per_actor: std::ref, per_actor_param, per_actor_peer", .actors_count = 3) {
   std::vector<int> ok(3, 0);
   std::vector<size_t> next(3, 0);
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    btye::per_actor<base_service> bases;
-    co_await bases.start();
-    btye::per_actor<dependent> deps;
-    co_await deps.start(std::ref(bases), std::ref(bases),
-                        btye::per_actor_param{[] { return local_actor()->id() * 10; }}, std::string("svc"));
-    co_await deps.invoke_on_all([&](dependent& d) -> dd::task<void> {
-      size_t id = local_actor()->id();
-      ok[id] = d.local_base.id == id && &d.all_bases == &bases && d.param == id * 10 && d.name == "svc";
-      co_return;
-    });
-
-    btye::per_actor<peer> peers;
-    co_await peers.start();
-    co_await peers.invoke_on_all(
-        [&](peer& p) -> dd::task<void> { next[local_actor()->id()] = co_await p.next_value(); });
-    co_await peers.stop();
-    co_await deps.stop();
-    co_await bases.stop();
-    co_return 0;
+  btye::per_actor<base_service> bases;
+  co_await bases.start();
+  btye::per_actor<dependent> deps;
+  co_await deps.start(std::ref(bases), std::ref(bases),
+                      btye::per_actor_param{[] { return local_actor()->id() * 10; }}, std::string("svc"));
+  co_await deps.invoke_on_all([&](dependent& d) -> dd::task<void> {
+    size_t id = local_actor()->id();
+    ok[id] = d.local_base.id == id && &d.all_bases == &bases && d.param == id * 10 && d.name == "svc";
+    co_return;
   });
-  REQUIRE(code == 0);
+
+  btye::per_actor<peer> peers;
+  co_await peers.start();
+  co_await peers.invoke_on_all(
+      [&](peer& p) -> dd::task<void> { next[local_actor()->id()] = co_await p.next_value(); });
+  co_await peers.stop();
+  co_await deps.stop();
+  co_await bases.stop();
   REQUIRE((ok == std::vector<int>(3, 1)));
   REQUIRE((next == std::vector<size_t>{100, 200, 0}));
 }

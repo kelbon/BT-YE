@@ -1,10 +1,9 @@
-#include "btye/app.hpp"
+#include "app_test.hpp"
+
 #include "btye/invoke.hpp"
 #include "btye/mt_server.hpp"
 
 #include <hidi/h2client.hpp>
-
-#include <moko3/moko3.hpp>
 
 #include <chrono>
 #include <map>
@@ -12,10 +11,6 @@
 
 using namespace std::chrono_literals;
 using btye::local_actor;
-
-static btye::app_options actors(size_t n) {
-  return btye::app_options{.actors_count = n};
-}
 
 // отвечает номером актора, на котором обработан запрос
 struct id_server : hidi::h2server {
@@ -45,56 +40,42 @@ static hidi::server_endpoint localhost() {
   return {.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)};
 }
 
-TEST("mt_server: connections distributed over actors") {
-  std::map<char, int> answers;
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    btye::mt_server<id_server> server;
-    co_await server.start(nullptr);
-    hidi::internet_address addr = server.listen0(localhost());
-    answers = co_await btye::invoke_on(1, ask(addr, 6));
-    co_await server.shutdown();
-    co_return 0;
-  });
-  REQUIRE(code == 0);
+APP_TEST("mt_server: connections distributed over actors", .actors_count = 3) {
+  btye::mt_server<id_server> server;
+  co_await server.start(nullptr);
+  hidi::internet_address addr = server.listen0(localhost());
+  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 6));
+  co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'0', 2}, {'1', 2}, {'2', 2}}));
 }
 
-TEST("mt_server: only chosen actors") {
-  std::map<char, int> answers;
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    size_t n = 0;
-    btye::mt_server<id_server> server([&n] noexcept { return 1 + n++ % 2; });
-    co_await server.start(nullptr);
-    hidi::internet_address addr = server.listen0(localhost());
-    answers = co_await btye::invoke_on(1, ask(addr, 4));
-    co_await server.shutdown();
-    co_return 0;
-  });
-  REQUIRE(code == 0);
+APP_TEST("mt_server: only chosen actors", .actors_count = 3) {
+  size_t n = 0;
+  btye::mt_server<id_server> server([&n] noexcept { return 1 + n++ % 2; });
+  co_await server.start(nullptr);
+  hidi::internet_address addr = server.listen0(localhost());
+  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 4));
+  co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'1', 2}, {'2', 2}}));
 }
 
-TEST("mt_server: listen from another actor, error returns to the caller") {
-  std::map<char, int> answers;
+APP_TEST("mt_server: listen from another actor, error returns to the caller", .actors_count = 3) {
   bool error_on_caller = false;
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
-    btye::mt_server<id_server> server;
-    co_await server.start(nullptr);
-    co_await btye::jump_on_actor(2);
-    hidi::internet_address addr = co_await server.listen(localhost());
-    REQUIRE(local_actor()->id() == 2);
-    // адрес не этой машины (TEST-NET-1): исключение на вызывающем акторе
-    try {
-      (void)co_await server.listen(
-          {.addr = hidi::internet_address(boost::asio::ip::make_address("192.0.2.1"), 0)});
-    } catch (std::exception&) {
-      error_on_caller = local_actor()->id() == 2;
-    }
-    answers = co_await btye::invoke_on(1, ask(addr, 3));
-    co_await server.shutdown();
-    co_return 0;
-  });
-  REQUIRE(code == 0 && error_on_caller);
+  btye::mt_server<id_server> server;
+  co_await server.start(nullptr);
+  co_await btye::jump_on_actor(2);
+  hidi::internet_address addr = co_await server.listen(localhost());
+  REQUIRE(local_actor()->id() == 2);
+  // адрес не этой машины (TEST-NET-1): исключение на вызывающем акторе
+  try {
+    (void)co_await server.listen(
+        {.addr = hidi::internet_address(boost::asio::ip::make_address("192.0.2.1"), 0)});
+  } catch (std::exception&) {
+    error_on_caller = local_actor()->id() == 2;
+  }
+  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 3));
+  co_await server.shutdown();
+  REQUIRE(error_on_caller);
   REQUIRE((answers == std::map<char, int>{{'0', 1}, {'1', 1}, {'2', 1}}));
 }
 
@@ -114,17 +95,12 @@ struct tagged_server : hidi::h2server {
   }
 };
 
-TEST("mt_server: extra arguments of the server constructor") {
-  std::map<char, int> answers;
-  int code = btye::run(actors(2), [&]() -> dd::task<int> {
-    btye::mt_server<tagged_server> server;
-    co_await server.start(nullptr, {}, 'x');
-    hidi::internet_address addr = server.listen0(localhost());
-    answers = co_await btye::invoke_on(1, ask(addr, 2));
-    co_await server.shutdown();
-    co_return 0;
-  });
-  REQUIRE(code == 0);
+APP_TEST("mt_server: extra arguments of the server constructor", .actors_count = 2) {
+  btye::mt_server<tagged_server> server;
+  co_await server.start(nullptr, {}, 'x');
+  hidi::internet_address addr = server.listen0(localhost());
+  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 2));
+  co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'x', 2}}));
 }
 
