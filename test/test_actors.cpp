@@ -189,7 +189,7 @@ TEST("factory is called on each actor and destroyed before main") {
         }
         co_return 0;
       },
-      [&, marker = std::move(marker)] {
+      [&, marker = std::move(marker)] noexcept {
         created_on.push_back(std::this_thread::get_id());
         return hidi::make_asio_io_context();
       });

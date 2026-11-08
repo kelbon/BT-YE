@@ -1,5 +1,5 @@
 #include "btye/app.hpp"
-#include "btye/io.hpp"
+#include "btye/invoke.hpp"
 #include "btye/sleep.hpp"
 
 #include <moko3/moko3.hpp>
@@ -15,54 +15,67 @@ static btye::app_options actors(size_t n) {
 
 TEST("sleep: time is out") {
   int code = btye::run(actors(2), []() -> dd::task<int> {
-    hidi::any_timer t = btye::create_timer();
     auto start = std::chrono::steady_clock::now();
-    REQUIRE(co_await btye::sleep(t, 10ms));
+    REQUIRE(co_await btye::sleep(10ms));
     REQUIRE(std::chrono::steady_clock::now() - start >= 10ms);
     co_return 0;
   });
   REQUIRE(code == 0);
 }
 
-TEST("sleep: periodic background work woken by at_exit") {
+TEST("sleep: woken by the stop") {
   int ticks = 0;
+  bool after_stop = true;
   auto start = std::chrono::steady_clock::now();
   int code = btye::run(actors(2), [&]() -> dd::task<int> {
-    btye::run_in_background([](int& ticks) -> dd::task<void> {
-      hidi::any_timer t = btye::create_timer();
-      local_actor()->at_exit([&t] { t.cancel(); });
-      while (co_await btye::sleep(t, 1ms))
-        ++ticks;
-      // актор остановлен - сразу
-      REQUIRE(!co_await btye::sleep(t, 1h));
-    }(ticks));
-    hidi::any_timer t = btye::create_timer();
-    (void)co_await btye::sleep(t, 20ms);
+    for (size_t id : {0, 1}) {
+      btye::run_in_background([](size_t id, int& ticks, bool& after_stop) -> dd::task<void> {
+        co_await btye::jump_on_actor(id);
+        while (co_await btye::sleep(id == 0 ? 1ms : 1h))
+          ++ticks;
+        // актор остановлен - сразу
+        after_stop = after_stop && !co_await btye::sleep(1h);
+      }(id, ticks, after_stop));
+    }
+    (void)co_await btye::sleep(20ms);
     co_return 0;
   });
-  REQUIRE(code == 0 && ticks > 0);
-  // разбужен отменой, а не дождался часа
+  REQUIRE(code == 0 && ticks > 0 && after_stop);
+  // разбужены остановкой, а не дождались часа
   REQUIRE(std::chrono::steady_clock::now() - start < 1s);
 }
 
-TEST("sleep: cancel while not sleeping is not lost") {
-  auto start = std::chrono::steady_clock::now();
+TEST("sleep: woken by abort_source, abort while not sleeping is not lost") {
+  bool woken = false, at_once = false;
   int code = btye::run(actors(2), [&]() -> dd::task<int> {
-    btye::run_in_background([]() -> dd::task<void> {
-      hidi::any_timer t = btye::create_timer();
-      bool canceled = false;
-      local_actor()->at_exit([&] {
-        t.cancel();  // таймер не взведён, отмена ничего не будит
-        canceled = true;
-      });
-      while (!canceled)
-        co_await btye::yield();
-      REQUIRE(!co_await btye::sleep(t, 1h));
-    }());
+    btye::abort_source as;
+    btye::run_in_background([](btye::abort_source& as) -> dd::task<void> {
+      co_await btye::yield();
+      as.request_abort();
+    }(as));
+    woken = !co_await btye::sleep(1h, as);
+    auto start = std::chrono::steady_clock::now();
+    at_once = !co_await btye::sleep(1h, as) && std::chrono::steady_clock::now() - start < 1s;
+    // другой источник не мешает
+    btye::abort_source other;
+    REQUIRE(co_await btye::sleep(1ms, other));
     co_return 0;
   });
-  REQUIRE(code == 0);
-  REQUIRE(std::chrono::steady_clock::now() - start < 1s);
+  REQUIRE(code == 0 && woken && at_once);
+}
+
+TEST("sleep: abort from another actor through invoke_on") {
+  bool woken = false;
+  int code = btye::run(actors(2), [&]() -> dd::task<int> {
+    btye::abort_source as;  // на акторе 0
+    btye::run_in_background([](btye::abort_source& as) -> dd::task<void> {
+      co_await btye::jump_on_actor(1);
+      co_await btye::invoke_on(0, btye::as_task([&] { as.request_abort(); }));
+    }(as));
+    woken = !co_await btye::sleep(1h, as);
+    co_return 0;
+  });
+  REQUIRE(code == 0 && woken);
 }
 
 REGISTER_TEST_LISTENER(moko3::gtest_listener);

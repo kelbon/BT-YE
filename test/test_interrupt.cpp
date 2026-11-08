@@ -25,7 +25,7 @@ struct not_asio_io : hidi::asio_io {
 };
 
 static btye::actor_context_factory_t not_asio_factory() {
-  return [] { return hidi::any_io_context(std::in_place_type<not_asio_io>); };
+  return [] noexcept { return hidi::any_io_context(std::in_place_type<not_asio_io>); };
 }
 
 // сигнал процессу. POSIX - kill: raise доставил бы его только текущему потоку, где сигнал заблокирован для
@@ -71,7 +71,8 @@ TEST("signal while actors are created is not lost") {
   for (bool asio : asio_paths) {
     // контекст актора 0 создаётся первым, дальше обработка прерывания уже включена
     std::atomic_int created = 0;
-    auto factory = [&, inner = asio ? btye::default_actor_context_factory() : not_asio_factory()]() mutable {
+    auto factory = [&, inner = asio ? btye::default_actor_context_factory()
+                                    : not_asio_factory()]() mutable noexcept {
       if (created++ == 1)
         send_signal(SIGTERM);
       return inner();

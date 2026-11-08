@@ -84,7 +84,7 @@ TEST("local_io_ref: asio directly, other contexts and asio with starter through 
   std::atomic_int started = 0;
   std::string answer;
   bool forwarded = false;
-  btye::actor_context_factory_t factory = [&] {
+  btye::actor_context_factory_t factory = [&] noexcept {
     return hidi::any_io_context(std::in_place_type<hidi::asio_io>,
                                 [&](boost::asio::ip::tcp::socket&, hidi::deadline_t) -> dd::task<void> {
                                   ++started;

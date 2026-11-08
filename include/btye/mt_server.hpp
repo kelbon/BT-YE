@@ -16,7 +16,7 @@ inline constexpr per_actor_param local_io_ref_param{[] { return local_io_ref(); 
 
 // выбор актора для соединения по кругу среди всех
 inline aa::move_only_fn<size_t() noexcept> round_robin() {
-  return [n = size_t(0)]() mutable { return n++ % all_actors().size(); };
+  return [n = size_t(0)]() mutable noexcept { return n++ % all_actors().size(); };
 }
 
 // Многопоточный сервер: экземпляр S на каждом акторе. Слушает только актор 0, принятые им соединения

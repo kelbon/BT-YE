@@ -126,7 +126,7 @@ struct app_state {
 }  // namespace noexport
 
 actor_context_factory_t default_actor_context_factory() {
-  return [] { return hidi::make_asio_io_context(); };
+  return [] noexcept { return hidi::make_asio_io_context(); };
 }
 
 void actor::at_exit(aa::move_only_fn<void()> cb) {

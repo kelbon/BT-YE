@@ -28,7 +28,7 @@ aa::move_only_fn<void() noexcept> handle_crash() {
   std::array<handler_t, crash_signals.size()> old;
   for (size_t i = 0; i < crash_signals.size(); ++i)
     old[i] = std::signal(crash_signals[i], on_crash);
-  return [old] {
+  return [old] noexcept {
     for (size_t i = 0; i < crash_signals.size(); ++i)
       std::signal(crash_signals[i], old[i]);
   };

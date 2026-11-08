@@ -31,7 +31,7 @@ static aa::move_only_fn<void() noexcept> asio_interrupt(boost::asio::io_context&
       request_stop();
   });
   // ожидание держит цикл актора 0, поэтому set разрушается в начале остановки
-  return [set = std::move(set)]() mutable { set.reset(); };
+  return [set = std::move(set)]() mutable noexcept { set.reset(); };
 }
 
 // не на акторе: переходит на актор 0 и вызывает там request_stop. Задачу никто не ждёт, но переход
@@ -62,7 +62,7 @@ static BOOL WINAPI console_handler(DWORD event) {
 static aa::move_only_fn<void() noexcept> fallback_interrupt(actor& a0) {
   console_actor = &a0;
   SetConsoleCtrlHandler(console_handler, TRUE);
-  return [] {
+  return [] noexcept {
     console_actor = nullptr;
     SetConsoleCtrlHandler(console_handler, FALSE);
   };

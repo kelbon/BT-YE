@@ -63,7 +63,7 @@ TEST("mt_server: only chosen actors") {
   std::map<char, int> answers;
   int code = btye::run(actors(3), [&]() -> dd::task<int> {
     size_t n = 0;
-    btye::mt_server<id_server> server([&n] { return 1 + n++ % 2; });
+    btye::mt_server<id_server> server([&n] noexcept { return 1 + n++ % 2; });
     co_await server.start(nullptr);
     hidi::internet_address addr = server.listen0(localhost());
     answers = co_await btye::invoke_on(1, ask(addr, 4));
