@@ -19,7 +19,6 @@ struct app_state;
 }
 
 // Поток со своим циклом событий. Создаются и живут внутри btye::run
-// TODO id потока, thread::id
 // TODO actor local
 // на каждом акторе unordered_map<ключ, aa::any>
 struct actor {

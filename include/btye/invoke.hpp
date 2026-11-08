@@ -14,6 +14,11 @@ dd::task<std::invoke_result_t<F&>> as_task(F fn) {
   co_return fn();
 }
 
+template <typename T>
+dd::task<T> as_task(dd::task<T> t) {
+  return t;
+}
+
 // выполняет `t` на `a`, возвращается и пробрасывает исключение если есть
 template <typename T>
 dd::task<T> invoke_on(actor& a, dd::task<T> t) {

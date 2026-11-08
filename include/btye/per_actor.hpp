@@ -101,21 +101,18 @@ struct per_actor {
   dd::task<void> start(Args... args) {
     assert(instances.size() == 0 && "per_actor is already started");
     instances = dd::noexport::fixed_array<std::unique_ptr<T>>(all_actors().size());
-    std::exception_ptr err;
-    try {
-      co_await btye::invoke_on_all([&]() -> dd::task<void> {
-        auto& t = instances[local_actor()->id()];
-        t = std::make_unique<T>(noexport::unwrap_arg(args)...);
-        if constexpr (std::is_base_of_v<per_actor_peer<T>, T>)
-          t->c = this;
-        co_return;
-      });
-    } catch (...) {
-      err = std::current_exception();
-    }
-    if (err) {
+    dd::task<void> t = btye::invoke_on_all([&]() -> dd::task<void> {
+      auto& t = instances[local_actor()->id()];
+      t = std::make_unique<T>(noexport::unwrap_arg(args)...);
+      if constexpr (std::is_base_of_v<per_actor_peer<T>, T>)
+        t->c = this;
+      co_return;
+    });
+    co_await t.wait();
+    auto& promise = t.raw_handle().promise();
+    if (promise.has_exception()) {
       co_await stop();
-      std::rethrow_exception(err);
+      std::rethrow_exception(promise.take_exception());
     }
   }
 
@@ -124,30 +121,25 @@ struct per_actor {
   dd::task<void> stop() {
     if (instances.size() == 0)
       co_return;
-    std::exception_ptr err;
-    try {
-      co_await btye::invoke_on_all([&]() -> dd::task<void> {
-        T* t = local_ptr();
-        if constexpr (requires { t->stop(); }) {
-          if (!t)
-            co_return;
-          if constexpr (std::is_void_v<decltype(t->stop())>)
-            t->stop();
-          else
-            co_await t->stop();
-        }
-        co_return;
-      });
-    } catch (...) {
-      err = std::current_exception();
-    }
+    dd::task<void> stopall = btye::invoke_on_all([&]() -> dd::task<void> {
+      T* t = local_ptr();
+      if constexpr (requires { t->stop(); }) {
+        if (!t)
+          co_return;
+        if constexpr (std::is_void_v<decltype(t->stop())>)
+          t->stop();
+        else
+          co_await t->stop();
+      }
+      co_return;
+    });
+    co_await stopall.wait();
     co_await btye::invoke_on_all([&]() -> dd::task<void> {
       instances[local_actor()->id()].reset();
       co_return;
     });
     instances = {};
-    if (err)
-      std::rethrow_exception(err);
+    stopall.get();  // may be rethrow
   }
 
   // экземпляр текущего актора
