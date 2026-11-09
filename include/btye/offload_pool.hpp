@@ -9,7 +9,7 @@ namespace btye {
 
 struct offload_pool_options {
   // если 0, то ставится 1
-  size_t threads_count = 0;
+  size_t threads_count = std::thread::hardware_concurrency();
   bool name_threads = false;
 };
 

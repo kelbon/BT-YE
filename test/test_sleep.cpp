@@ -21,8 +21,9 @@ TEST("sleep: time is out") {
 }
 
 TEST("sleep: woken by the stop") {
-  int ticks = 0;
-  bool after_stop = true;
+  // у каждого актора свои счётчик и флаг: задачи на разных акторах пишут без синхронизации
+  std::array<int, 2> ticks{0, 0};
+  std::array<bool, 2> after_stop{false, false};
   auto start = std::chrono::steady_clock::now();
   int code = btye::run(actors(2), [&]() -> dd::task<int> {
     for (size_t id : {0, 1}) {
@@ -31,13 +32,13 @@ TEST("sleep: woken by the stop") {
         while (co_await btye::sleep(id == 0 ? 1ms : 1h))
           ++ticks;
         // актор остановлен - сразу
-        after_stop = after_stop && !co_await btye::sleep(1h);
-      }(id, ticks, after_stop));
+        after_stop = !co_await btye::sleep(1h);
+      }(id, ticks[id], after_stop[id]));
     }
     (void)co_await btye::sleep(20ms);
     co_return 0;
   });
-  REQUIRE(code == 0 && ticks > 0 && after_stop);
+  REQUIRE(code == 0 && ticks[0] > 0 && ticks[1] == 0 && after_stop[0] && after_stop[1]);
   // разбужены остановкой, а не дождались часа
   REQUIRE(std::chrono::steady_clock::now() - start < 1s);
 }
