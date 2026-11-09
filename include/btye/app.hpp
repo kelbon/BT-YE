@@ -8,6 +8,7 @@
 
 #include "btye/actor.hpp"
 #include "btye/client_pool.hpp"
+#include "btye/offload_pool.hpp"
 
 namespace btye {
 
@@ -28,7 +29,10 @@ struct app_options {
   // падает как без обработчика. Обработчики ставятся на время run
   bool handle_crash = true;
   // настройки клиент пула на каждом акторе (nullopt - без него)
-  std::optional<client_pool_options> connection_pool_options = client_pool_options{};
+  std::optional<client_pool_options> connection_pool = client_pool_options{};
+  // пул для блокирующих задач. nullopt = не создавать
+  std::optional<offload_pool_options> offload_pool = offload_pool_options{};
+
   // актор i привязывается к процессору available_cpus()[i % их число]. Поток, вызвавший run (актор 0), тоже
   // и остаётся привязанным после run. Если не удалось или ОС не поддерживает (macOS) - сообщение в stderr
   bool pin_to_cpu = false;

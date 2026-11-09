@@ -40,6 +40,7 @@ struct app_state {
   dd::road stopped;
   // пишется по ходу `main`, читается после конца циклов
   int exit_code = 0;
+  std::optional<offload_pool> ofpool;
 
   static void init_actor(actor& a, app_state& s, size_t i) noexcept {
     a.app = &s;
@@ -48,9 +49,9 @@ struct app_state {
 
   // на потоке актора, после создания контекста
   static void start_clients(actor& a, const app_options& o) noexcept {
-    if (!o.connection_pool_options)
+    if (!o.connection_pool)
       return;
-    local_client_pool& p = a.clients.emplace(*o.connection_pool_options);
+    local_client_pool& p = a.clients.emplace(*o.connection_pool);
     a.clients_stop = a.on_stop(stop_phases_e::clients, [&p] { return p.stop(); });
   }
 
@@ -135,6 +136,8 @@ struct app_state {
     for (size_t p = 0; p < size_t(stop_phases_e::COUNT); ++p)
       co_await invoke_on_all([p] { return run_phase(stop_phases_e(p)); });
     s.stopped.open(s.actors[0]);
+    if (s.ofpool)
+      s.ofpool.reset();  // ждём всех кто там работал, некоторые прыгнут обратно на акторов
     s.background_done();
   }
 
@@ -169,6 +172,12 @@ actor_context_factory_t default_actor_context_factory() {
 
 actor* local_actor() noexcept {
   return current_actor;
+}
+
+offload_pool& actor::offpool() {
+  if (!app->ofpool)
+    throw std::logic_error("btye: no offload pool available");
+  return *app->ofpool;
 }
 
 std::span<actor> all_actors() noexcept {
@@ -229,6 +238,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   setup_thread(0);
   create_context(a0);
   app_state::start_clients(a0, opts);
+  if (opts.offload_pool)
+    s.ofpool.emplace(*opts.offload_pool);
   if (opts.handle_interrupt)
     s.stop_interrupt = noexport::handle_interrupt(a0);
 

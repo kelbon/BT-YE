@@ -20,6 +20,7 @@ add_library(btyelib STATIC
     src/btye/sleep.cpp
     src/btye/client_pool.cpp
     src/btye/actor.cpp
+    src/btye/offload_pool.cpp
     src/btye/utils/thread_tune.cpp
 )
 
