@@ -12,6 +12,25 @@
 
 namespace btye {
 
+namespace noexport {
+
+// санитайзер ставит свои обработчики падений, его отчёт подробнее нашего
+inline constexpr bool sanitizer_handles_crash =
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    true;
+#elif defined(__has_feature)
+  #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || \
+      __has_feature(memory_sanitizer) || __has_feature(hwaddress_sanitizer)
+    true;
+  #else
+    false;
+  #endif
+#else
+    false;
+#endif
+
+}  // namespace noexport
+
 // вызывается на потоке каждого актора, никогда одновременно
 // исключение из фабрики вызывает std::terminate
 // когда контексты созданы на всех акторах, фабрика разрушается (до запуска `main`)
@@ -26,8 +45,9 @@ struct app_options {
   // сигнал обрабатывается системой как обычно (обычно завершает процесс)
   bool handle_interrupt = true;
   // при падении (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS) печатает сигнал и стек в stderr, затем процесс
-  // падает как без обработчика. Обработчики ставятся на время run
-  bool handle_crash = true;
+  // падает как без обработчика. Обработчики ставятся на время run. По умолчанию выключено под ASan, TSan,
+  // MSan, HWASan: у них свои обработчики
+  bool handle_crash = !noexport::sanitizer_handles_crash;
   // настройки клиент пула на каждом акторе (nullopt - без него)
   std::optional<client_pool_options> connection_pool = client_pool_options{};
   // пул для блокирующих задач. nullopt = не создавать
