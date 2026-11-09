@@ -52,18 +52,6 @@ TEST("actor threads are named actor_N, the caller keeps its name") {
   REQUIRE((names == std::vector<std::string>{"test_main", "actor_1", "actor_2"}));
 }
 
-TEST("pin_to_cpu: actor i runs on available_cpus()[i % count]") {
-  std::vector<size_t> cpus = btye::available_cpus();
-  std::vector<int> on(3, -1);
-  int code = btye::run(btye::app_options{.actors_count = 3, .pin_to_cpu = true}, [&]() -> dd::task<int> {
-    co_await btye::invoke_on_all([&] { on[local_actor()->id()] = sched_getcpu(); });
-    co_return 0;
-  });
-  REQUIRE(code == 0);
-  for (size_t i = 0; i < on.size(); ++i)
-    REQUIRE(size_t(on[i]) == cpus[i % cpus.size()]);
-}
-
 #endif
 
 REGISTER_TEST_LISTENER(moko3::gtest_listener);

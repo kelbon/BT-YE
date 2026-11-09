@@ -5,17 +5,17 @@
 
 #include "asio_of.hpp"
 #include "btye/app.hpp"
+#include "btye/sleep.hpp"
 
 #ifdef _WIN32
   #include <windows.h>
-#else
-  #include <pthread.h>
 #endif
 
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <memory>
-#include <thread>
 
 namespace btye::noexport {
 
@@ -70,41 +70,35 @@ static aa::move_only_fn<void() noexcept> fallback_interrupt(actor& a0) {
 
 #else
 
-// не asio: сигналы блокируются до создания потоков остальных акторов (они наследуют маску), их принимает
-// sigwait отдельного потока
-struct sigwait_interrupt {
-  sigset_t set;
-  sigset_t old;
-  std::thread waiter;
-  std::atomic_bool exiting = false;
+// не asio: обработчик (общий на процесс, срабатывает на любом потоке) только ставит флаг,
+// актор 0 проверяет его по таймеру
+static std::atomic_bool interrupted = false;
 
-  explicit sigwait_interrupt(actor& a0) {
-    sigemptyset(&set);
-    sigaddset(&set, SIGINT);
-    sigaddset(&set, SIGTERM);
-    pthread_sigmask(SIG_BLOCK, &set, &old);
-    waiter = std::thread([this, &a0] {
-      for (;;) {
-        int sig = 0;
-        sigwait(&set, &sig);
-        if (exiting.load())
-          return;
-        stop_on(a0);
-      }
-    });
-  }
+static void on_signal(int) noexcept {
+  interrupted = true;
+}
 
-  // на потоке, который заблокировал сигналы (актор 0)
-  ~sigwait_interrupt() {
-    exiting = true;
-    pthread_kill(waiter.native_handle(), SIGTERM);
-    waiter.join();
-    pthread_sigmask(SIG_SETMASK, &old, nullptr);
-  }
-};
+// заканчивается в начале остановки: stop_source отменяется на всех акторах
+static dd::job poll_interrupted(actor& a0) {
+  while (co_await sleep(std::chrono::milliseconds(100), a0.stop_source()))
+    if (interrupted.exchange(false))
+      request_stop();
+}
 
 static aa::move_only_fn<void() noexcept> fallback_interrupt(actor& a0) {
-  return [s = std::make_unique<sigwait_interrupt>(a0)]() mutable noexcept { s.reset(); };
+  interrupted = false;
+  struct sigaction sa = {};
+  sa.sa_handler = &on_signal;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  std::array<struct sigaction, 2> old;
+  sigaction(SIGINT, &sa, &old[0]);
+  sigaction(SIGTERM, &sa, &old[1]);
+  poll_interrupted(a0);
+  return [old] noexcept {
+    sigaction(SIGINT, &old[0], nullptr);
+    sigaction(SIGTERM, &old[1], nullptr);
+  };
 }
 
 #endif
