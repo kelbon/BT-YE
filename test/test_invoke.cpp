@@ -15,15 +15,32 @@ static dd::task<size_t> where() {
 
 APP_TEST("invoke_on: result, returns to the caller", .actors_count = 3) {
   co_await btye::jump_on(btye::get_actor(1));
-  size_t on2 = co_await btye::invoke_on(2, where());
+  size_t on2 = co_await btye::invoke_on(2, where);
   REQUIRE(on2 == 2 && local_actor()->id() == 1);
   size_t on0 = co_await btye::invoke_on(btye::get_actor(0), []() -> dd::task<size_t> {
     co_await btye::yield();
     co_return local_actor()->id() + 10;
-  }());
+  });
   REQUIRE(on0 == 10 && local_actor()->id() == 1);
   // тот же актор
-  REQUIRE(co_await btye::invoke_on(1, where()) == 1);
+  REQUIRE(co_await btye::invoke_on(1, where) == 1);
+}
+
+APP_TEST("invoke_on: the function is called on the target actor, its copy per actor", .actors_count = 3) {
+  // синхронная функция, её вызов - на целевом акторе
+  REQUIRE(co_await btye::invoke_on(2, [] { return local_actor()->id(); }) == 2);
+  // исключение из синхронной функции - на вызывающем
+  bool caught_on_caller = false;
+  try {
+    (void)co_await btye::invoke_on(1, []() -> int { throw std::runtime_error("sync"); });
+  } catch (std::runtime_error&) {
+    caught_on_caller = local_actor()->id() == 0;
+  }
+  REQUIRE(caught_on_caller);
+  // у каждого актора своя копия: изменения копии не видны другим
+  std::vector<int> calls(3, 0);
+  co_await btye::invoke_on_all([&calls, n = 0]() mutable { calls[local_actor()->id()] = ++n; });
+  REQUIRE((calls == std::vector<int>{1, 1, 1}));
 }
 
 APP_TEST("invoke_on: exception after returning to the caller", .actors_count = 2) {
@@ -32,7 +49,7 @@ APP_TEST("invoke_on: exception after returning to the caller", .actors_count = 2
     co_await btye::invoke_on(1, []() -> dd::task<void> {
       throw std::runtime_error("on 1");
       co_return;
-    }());
+    });
   } catch (std::runtime_error& e) {
     caught_on_caller = local_actor()->id() == 0 && std::string_view(e.what()) == "on 1";
   }

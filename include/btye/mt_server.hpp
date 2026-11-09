@@ -150,7 +150,7 @@ struct mt_server {
 
   // listen0 с любого актора: выполняется на акторе 0, адрес или исключение возвращаются на текущий актор
   dd::task<hidi::internet_address> listen(hidi::server_endpoint e) {
-    co_return co_await invoke_on(0, as_task([&] { return listen0(e); }));
+    co_return co_await invoke_on(0, [&] { return listen0(e); });
   }
 
   // мягкая остановка серверов на всех акторах (h2server::shutdown), затем их разрушение. С любого актора,

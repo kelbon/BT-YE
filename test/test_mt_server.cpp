@@ -32,7 +32,7 @@ APP_TEST("mt_server: connections distributed over actors", .actors_count = 3) {
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
   hidi::internet_address addr = server.listen0(localhost());
-  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 6));
+  std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 6); });
   co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'0', 2}, {'1', 2}, {'2', 2}}));
 }
@@ -42,7 +42,7 @@ APP_TEST("mt_server: only chosen actors", .actors_count = 3) {
   btye::mt_server<id_server> server([&n] noexcept { return 1 + n++ % 2; });
   co_await server.start(nullptr);
   hidi::internet_address addr = server.listen0(localhost());
-  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 4));
+  std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 4); });
   co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'1', 2}, {'2', 2}}));
 }
@@ -61,7 +61,7 @@ APP_TEST("mt_server: listen from another actor, error returns to the caller", .a
   } catch (std::exception&) {
     error_on_caller = local_actor()->id() == 2;
   }
-  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 3));
+  std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 3); });
   co_await server.shutdown();
   REQUIRE(error_on_caller);
   REQUIRE((answers == std::map<char, int>{{'0', 1}, {'1', 1}, {'2', 1}}));
@@ -71,7 +71,7 @@ APP_TEST("mt_server: stopped in the servers phase of the stop", .actors_count = 
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
   hidi::internet_address addr = server.listen0(localhost());
-  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 3));
+  std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 3); });
   btye::request_stop();
   co_await btye::wait_stopped();
   // уже остановлен фазой: явная остановка ничего не делает, разрушение без неё
@@ -102,7 +102,7 @@ APP_TEST("mt_server: destroyed while running is terminated in the background", .
     btye::mt_server<id_server> server;
     co_await server.start(nullptr);
     hidi::internet_address addr = server.listen0(localhost());
-    std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 3));
+    std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 3); });
     REQUIRE(answers.size() == 3);
   }
   // остановка идёт в фоне и держит циклы: приложение закончится после неё
@@ -128,7 +128,7 @@ APP_TEST("mt_server: extra arguments of the server constructor", .actors_count =
   btye::mt_server<tagged_server> server;
   co_await server.start(nullptr, {}, 'x');
   hidi::internet_address addr = server.listen0(localhost());
-  std::map<char, int> answers = co_await btye::invoke_on(1, ask(addr, 2));
+  std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 2); });
   co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'x', 2}}));
 }

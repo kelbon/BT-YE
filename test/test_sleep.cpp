@@ -67,7 +67,7 @@ TEST("sleep: abort from another actor through invoke_on") {
     btye::abort_source as;  // на акторе 0
     btye::run_in_background([](btye::abort_source& as) -> dd::task<void> {
       co_await btye::jump_on_actor(1);
-      co_await btye::invoke_on(0, btye::as_task([&] { as.request_abort(); }));
+      co_await btye::invoke_on(0, [&] { as.request_abort(); });
     }(as));
     woken = !co_await btye::sleep(1h, as);
     co_return 0;

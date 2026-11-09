@@ -79,12 +79,6 @@ struct per_actor {
     return instances.size() ? instances[local_actor_ref().id()].get() : nullptr;
   }
 
-  // создаётся на том акторе, где задача стартует
-  template <typename F>
-  std::invoke_result_t<F&, T&> call_local(F& fn) {
-    co_return co_await fn(local());
-  }
-
  public:
   per_actor() = default;
   per_actor(per_actor&&) = delete;
@@ -154,22 +148,22 @@ struct per_actor {
     return *t;
   }
 
-  // fn(T&) -> dd::task<R> с экземпляром актора `id`, результат на текущем акторе
+  // fn(T&) -> R или dd::task<R> с экземпляром актора `id`, результат на текущем акторе (см. btye::invoke_on)
   template <typename F>
-  std::invoke_result_t<F&, T&> invoke_on(size_t id, F fn) {
-    co_return co_await btye::invoke_on(id, call_local(fn));
+  auto invoke_on(size_t id, F fn) {
+    return btye::invoke_on(id, [this, fn = std::move(fn)]() mutable { return fn(local()); });
   }
 
-  // fn(T&) -> dd::task<void> на всех акторах параллельно
+  // fn(T&) -> void или dd::task<void> на всех акторах параллельно, у каждого своя копия fn
   template <typename F>
   dd::task<void> invoke_on_all(F fn) {
-    co_await btye::invoke_on_all([&] { return call_local(fn); });
+    return btye::invoke_on_all([this, fn = std::move(fn)]() mutable { return fn(local()); });
   }
 
   // то же, кроме текущего актора
   template <typename F>
   dd::task<void> invoke_on_others(F fn) {
-    co_await btye::invoke_on_others([&] { return call_local(fn); });
+    return btye::invoke_on_others([this, fn = std::move(fn)]() mutable { return fn(local()); });
   }
 };
 

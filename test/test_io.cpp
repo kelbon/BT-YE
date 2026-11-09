@@ -24,14 +24,14 @@ TEST("h2server and h2client on actor contexts") {
     id_server server(nullptr, {}, btye::local_io_ref());
     hidi::internet_address addr =
         server.listen({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
-    answer = co_await btye::invoke_on(1, [](hidi::internet_address addr) -> dd::task<std::string> {
+    answer = co_await btye::invoke_on(1, [addr]() -> dd::task<std::string> {
       hidi::h2client client(addr, nullptr, {}, btye::local_io_ref());
       hidi::http_response rsp = co_await client.send_request(
           hidi::http_request{.path = "/", .method = hidi::http_method_e::GET}, hidi::deadline_after(5s));
       // деструктор h2client внутри цикла не дожидается чтения соединения
       co_await client.graceful_stop();
       co_return std::string(rsp.body_strview());
-    }(addr));
+    });
     server_actor = local_actor()->id();
     co_await server.shutdown();
     co_return 0;
@@ -49,7 +49,7 @@ TEST("create_timer: the timer of the current actor") {
       co_await hidi::net.sleep(t, 10ms, ec);
       REQUIRE(!ec && std::chrono::steady_clock::now() - start >= 10ms);
       co_return local_actor()->id();
-    }());
+    });
     co_return 0;
   });
   REQUIRE(code == 0 && woke_on == 1);
@@ -86,13 +86,13 @@ TEST("local_io_ref: asio directly, other contexts and asio with starter through 
         id_server server(nullptr, {}, std::move(ref));
         hidi::internet_address addr =
             server.listen({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
-        answer = co_await btye::invoke_on(1, [](hidi::internet_address addr) -> dd::task<std::string> {
+        answer = co_await btye::invoke_on(1, [addr]() -> dd::task<std::string> {
           hidi::h2client client(addr, nullptr, {}, btye::local_io_ref());
           hidi::http_response rsp =
               co_await client.send_request(hidi::http_request{.path = "/"}, hidi::deadline_after(5s));
           co_await client.graceful_stop();
           co_return std::string(rsp.body_strview());
-        }(addr));
+        });
         co_await server.shutdown();
         co_return 0;
       },

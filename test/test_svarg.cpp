@@ -42,7 +42,7 @@ APP_TEST("svarg: generated server under mt_server, generated client on an actor"
   co_await server.start();
   hidi::internet_address addr =
       server.listen0({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
-  std::map<size_t, int> answers = co_await btye::invoke_on(2, ask(addr, 6));
+  std::map<size_t, int> answers = co_await btye::invoke_on(2, [&] { return ask(addr, 6); });
   co_await server.shutdown();
   REQUIRE((answers == std::map<size_t, int>{{0, 2}, {1, 2}, {2, 2}}));
 }
