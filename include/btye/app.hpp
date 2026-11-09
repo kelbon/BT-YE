@@ -8,8 +8,28 @@
 
 #include "btye/actor.hpp"
 #include "btye/client_pool.hpp"
+#include "btye/offload_pool.hpp"
 
 namespace btye {
+
+namespace noexport {
+
+// санитайзер ставит свои обработчики падений, его отчёт подробнее нашего
+inline constexpr bool sanitizer_handles_crash =
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    true;
+#elif defined(__has_feature)
+  #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || \
+      __has_feature(memory_sanitizer) || __has_feature(hwaddress_sanitizer)
+    true;
+  #else
+    false;
+  #endif
+#else
+    false;
+#endif
+
+}  // namespace noexport
 
 // вызывается на потоке каждого актора, никогда одновременно
 // исключение из фабрики вызывает std::terminate
@@ -19,19 +39,22 @@ using actor_context_factory_t = aa::move_only_fn<hidi::any_io_context() noexcept
 actor_context_factory_t default_actor_context_factory();
 
 struct app_options {
-  // если 0, то берётся число процессоров, доступных процессу (available_cpus)
+  // 0 - std::thread::hardware_concurrency() (минимум 1)
   size_t actors_count = 0;
   // SIGINT/SIGTERM (Windows - Ctrl+C, Ctrl+Break) вызывают request_stop. Когда остановка началась, повторный
   // сигнал обрабатывается системой как обычно (обычно завершает процесс)
   bool handle_interrupt = true;
   // при падении (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS) печатает сигнал и стек в stderr, затем процесс
-  // падает как без обработчика. Обработчики ставятся на время run
-  bool handle_crash = true;
+  // падает как без обработчика. Обработчики ставятся на время run. По умолчанию выключено под ASan, TSan,
+  // MSan, HWASan: у них свои обработчики
+  bool handle_crash = !noexport::sanitizer_handles_crash;
   // настройки клиент пула на каждом акторе (nullopt - без него)
-  std::optional<client_pool_options> connection_pool_options = client_pool_options{};
-  // актор i привязывается к процессору available_cpus()[i % их число]. Поток, вызвавший run (актор 0), тоже
-  // и остаётся привязанным после run. Если не удалось или ОС не поддерживает (macOS) - сообщение в stderr
-  bool pin_to_cpu = false;
+  std::optional<client_pool_options> connection_pool = client_pool_options{};
+  // пул для блокирующих задач. nullopt = не создавать
+  std::optional<offload_pool_options> offload_pool = offload_pool_options{};
+  // даёт имена потокам - actor_1, _2 и так далее
+  // главному потоку имя не меняет. Имена в Блокирующем пуле отдельная настройка
+  bool name_threads = false;
   // TODO? опции сталл детектора, включать ли его, что считать сталлом мб ещё что-то
 };
 
@@ -58,5 +81,12 @@ void request_stop() noexcept;
 // ждёт полного завершения текущего run. Нельзя вызывать из on_stop акторов (дедлок)
 //   co_await server.start(); ...; co_await btye::wait_stopped(); co_return 0;
 dd::task<void> wait_stopped();
+
+// можно вызывать пока работает `run`
+// запускает задачу 'f' на пуле для блокирующих задач (если он есть, иначе исключение)
+template <typename F>
+dd::task<std::invoke_result_t<F&>> offload(F f) {
+  return local_actor_ref().offpool().offload(std::move(f));
+}
 
 }  // namespace btye

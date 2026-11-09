@@ -35,6 +35,7 @@ enum struct stop_phases_e : size_t {
 using stop_subscription = noexport::subscription<aa::move_only_fn<dd::task<void>()>>;
 
 struct actor;
+struct offload_pool;
 
 // Актор текущего потока. nullptr - поток не актор
 [[nodiscard]] actor* local_actor() noexcept;
@@ -55,11 +56,14 @@ struct actor {
   abort_source stop_src;
   size_t idx = 0;
   bool is_stopped = false;
+  // все offload задачи уходящие с этого актора должны закончится
+  dd::gate offload_gate;
 
   friend struct noexport::app_state;
   friend std::span<actor> all_actors() noexcept;
   friend void run_in_background(dd::task<void>);
   friend raw_client client_to(hidi::endpoint, client_params);
+  friend struct offload_pool;
 
  public:
   actor() = default;
@@ -86,6 +90,9 @@ struct actor {
     assert(local_actor() == this && "stop_source of another actor");
     return stop_src;
   }
+
+  // пул один на одно приложение (исключение если выключен)
+  offload_pool& offpool();
 
   // можно вызывать с любого потока. Всегда ставит задачу в очередь
   void attach(dd::task_node* n) {

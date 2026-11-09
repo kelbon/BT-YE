@@ -44,24 +44,12 @@ TEST("set_current_thread_name: long name is cut to 15 bytes by UTF-8 character b
 TEST("actor threads are named actor_N, the caller keeps its name") {
   btye::set_current_thread_name("test_main");
   std::vector<std::string> names(3);
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
+  int code = btye::run(btye::app_options{.actors_count = 3, .name_threads = true}, [&]() -> dd::task<int> {
     co_await btye::invoke_on_all([&] { names[local_actor()->id()] = current_thread_name(); });
     co_return 0;
   });
   REQUIRE(code == 0);
   REQUIRE((names == std::vector<std::string>{"test_main", "actor_1", "actor_2"}));
-}
-
-TEST("pin_to_cpu: actor i runs on available_cpus()[i % count]") {
-  std::vector<size_t> cpus = btye::available_cpus();
-  std::vector<int> on(3, -1);
-  int code = btye::run(btye::app_options{.actors_count = 3, .pin_to_cpu = true}, [&]() -> dd::task<int> {
-    co_await btye::invoke_on_all([&] { on[local_actor()->id()] = sched_getcpu(); });
-    co_return 0;
-  });
-  REQUIRE(code == 0);
-  for (size_t i = 0; i < on.size(); ++i)
-    REQUIRE(size_t(on[i]) == cpus[i % cpus.size()]);
 }
 
 #endif

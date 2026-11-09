@@ -8,7 +8,6 @@
   #include <unistd.h>
 #endif
 
-using btye::test::actors;
 
 static void user_handler(int) {
 }
@@ -16,7 +15,7 @@ static void user_handler(int) {
 TEST("crash handlers are set for run and restored after") {
   auto old = std::signal(SIGSEGV, user_handler);
   bool set_in_run = false;
-  int code = btye::run(actors(2), [&]() -> dd::task<int> {
+  int code = btye::run(btye::app_options{.actors_count = 2, .handle_crash = true}, [&]() -> dd::task<int> {
     auto h = std::signal(SIGSEGV, SIG_DFL);
     std::signal(SIGSEGV, h);
     set_in_run = h != user_handler && h != SIG_DFL;
@@ -35,6 +34,14 @@ TEST("crash handlers are set for run and restored after") {
   #define BTYE_TEST_SANITIZER
 #endif
 
+TEST("handle_crash is off by default under sanitizers") {
+#ifdef BTYE_TEST_SANITIZER
+  REQUIRE(!btye::app_options{}.handle_crash);
+#else
+  REQUIRE(btye::app_options{}.handle_crash);
+#endif
+}
+
 // санитайзеры ставят свои обработчики падений, под TSan печать стека в обработчике зависает
 #if !defined(_WIN32) && !defined(BTYE_TEST_SANITIZER)
 
@@ -47,7 +54,7 @@ static std::pair<std::string, int> crash_in_child(void (*crash)()) {
   if (pid == 0) {
     dup2(fds[1], STDERR_FILENO);
     close(fds[0]);
-    btye::run(actors(2), [crash]() -> dd::task<int> {
+    btye::run(btye::app_options{.actors_count = 2, .handle_crash = true}, [crash]() -> dd::task<int> {
       co_await btye::jump_on_actor(1);
       crash();
       co_return 0;

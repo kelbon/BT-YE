@@ -40,6 +40,7 @@ struct app_state {
   dd::road stopped;
   // пишется по ходу `main`, читается после конца циклов
   int exit_code = 0;
+  std::optional<offload_pool> ofpool;
 
   static void init_actor(actor& a, app_state& s, size_t i) noexcept {
     a.app = &s;
@@ -48,9 +49,9 @@ struct app_state {
 
   // на потоке актора, после создания контекста
   static void start_clients(actor& a, const app_options& o) noexcept {
-    if (!o.connection_pool_options)
+    if (!o.connection_pool)
       return;
-    local_client_pool& p = a.clients.emplace(*o.connection_pool_options);
+    local_client_pool& p = a.clients.emplace(*o.connection_pool);
     a.clients_stop = a.on_stop(stop_phases_e::clients, [&p] { return p.stop(); });
   }
 
@@ -134,6 +135,11 @@ struct app_state {
     // invoke_on_all возвращается, когда фаза закончилась на всех акторах
     for (size_t p = 0; p < size_t(stop_phases_e::COUNT); ++p)
       co_await invoke_on_all([p] { return run_phase(stop_phases_e(p)); });
+
+    co_await invoke_on_all([]() -> dd::task<void> {
+      actor& a = local_actor_ref();
+      co_await a.offload_gate.close();
+    });
     s.stopped.open(s.actors[0]);
     s.background_done();
   }
@@ -171,6 +177,12 @@ actor* local_actor() noexcept {
   return current_actor;
 }
 
+offload_pool& actor::offpool() {
+  if (!app->ofpool)
+    throw std::logic_error("btye: no offload pool available");
+  return *app->ofpool;
+}
+
 std::span<actor> all_actors() noexcept {
   if (current_actor)
     return current_actor->app->actors;
@@ -199,8 +211,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   aa::move_only_fn<void() noexcept> restore_crash_handlers;
   if (opts.handle_crash)
     restore_crash_handlers = noexport::handle_crash();
-  std::vector<size_t> cpus = available_cpus();
-  size_t n = opts.actors_count ? opts.actors_count : cpus.size();
+  size_t n = opts.actors_count ? opts.actors_count : std::max(1u, std::thread::hardware_concurrency());
   std::unique_ptr<actor[]> actors(new actor[n]);
   app_state s{.actors = {actors.get(), n}};
   s.stopped.close();
@@ -212,11 +223,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   // на потоке актора до создания контекста: память контекста выделяется уже на его процессоре
   auto setup_thread = [&](size_t i) noexcept {
     // имя главного потока не меняется: на Linux это имя процесса (ps, top, killall)
-    if (i != 0)
+    if (i != 0 && opts.name_threads)
       set_current_thread_name(std::format("actor_{}", i));
-    size_t cpu = cpus[i % cpus.size()];
-    if (opts.pin_to_cpu && !pin_current_thread_to_cpu(cpu))
-      std::println(stderr, "btye: cannot pin actor {} to cpu {}", i, cpu);
   };
 
   auto create_context = [&](actor& a) noexcept {
@@ -229,6 +237,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   setup_thread(0);
   create_context(a0);
   app_state::start_clients(a0, opts);
+  if (opts.offload_pool)
+    s.ofpool.emplace(*opts.offload_pool);
   if (opts.handle_interrupt)
     s.stop_interrupt = noexport::handle_interrupt(a0);
 
@@ -259,6 +269,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   app_state::run_loop(a0);
   foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
+  if (s.ofpool)  // задач там уже быть не должно, всех дождались offload_gate акторов
+    s.ofpool.reset();
   app_state::destroy_clients(a0);
   a0.ioctx().reset();
   current_actor = nullptr;
