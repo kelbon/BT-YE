@@ -91,7 +91,8 @@ APP_TEST("client_to: on every actor, stopped in the clients phase", .actors_coun
   REQUIRE(throws([&] { (void)btye::client_to(addr); }));
 }
 
-APP_TEST("client_to: the default pool is disabled", .actors_count = 1, .clients = std::nullopt) {
+APP_TEST("client_to: the default pool is disabled", .actors_count = 1,
+         .connection_pool_options = std::nullopt) {
   REQUIRE(
       throws([] { (void)btye::client_to(hidi::endpoint(boost::asio::ip::make_address("127.0.0.1"), 1)); }));
   co_return;

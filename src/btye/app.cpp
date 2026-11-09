@@ -1,6 +1,7 @@
 #include "btye/app.hpp"
 #include "btye/invoke.hpp"
 #include "btye/io.hpp"
+#include "btye/utils/thread_tune.hpp"
 
 #include "crash.hpp"
 #include "interrupt.hpp"
@@ -11,6 +12,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <format>
 #include <latch>
 #include <memory>
 #include <mutex>
@@ -46,9 +48,9 @@ struct app_state {
 
   // на потоке актора, после создания контекста
   static void start_clients(actor& a, const app_options& o) noexcept {
-    if (!o.clients)
+    if (!o.connection_pool_options)
       return;
-    local_client_pool& p = a.clients.emplace(*o.clients);
+    local_client_pool& p = a.clients.emplace(*o.connection_pool_options);
     a.clients_stop = a.on_stop(stop_phases_e::clients, [&p] { return p.stop(); });
   }
 
@@ -197,7 +199,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   aa::move_only_fn<void() noexcept> restore_crash_handlers;
   if (opts.handle_crash)
     restore_crash_handlers = noexport::handle_crash();
-  size_t n = opts.actors_count ? opts.actors_count : std::max(1u, std::thread::hardware_concurrency());
+  std::vector<size_t> cpus = available_cpus();
+  size_t n = opts.actors_count ? opts.actors_count : cpus.size();
   std::unique_ptr<actor[]> actors(new actor[n]);
   app_state s{.actors = {actors.get(), n}};
   s.stopped.close();
@@ -206,6 +209,16 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
 
   std::mutex factory_mtx;
 
+  // на потоке актора до создания контекста: память контекста выделяется уже на его процессоре
+  auto setup_thread = [&](size_t i) noexcept {
+    // имя главного потока не меняется: на Linux это имя процесса (ps, top, killall)
+    if (i != 0)
+      set_current_thread_name(std::format("actor_{}", i));
+    size_t cpu = cpus[i % cpus.size()];
+    if (opts.pin_to_cpu && !pin_current_thread_to_cpu(cpu))
+      std::println(stderr, "btye: cannot pin actor {} to cpu {}", i, cpu);
+  };
+
   auto create_context = [&](actor& a) noexcept {
     std::lock_guard l(factory_mtx);
     a.ioctx() = factory();   // вызов на потоке акторе
@@ -213,6 +226,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   };
   actor& a0 = actors[0];
   current_actor = &a0;
+  setup_thread(0);
   create_context(a0);
   app_state::start_clients(a0, opts);
   if (opts.handle_interrupt)
@@ -226,6 +240,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
     threads.emplace_back([&, i]() noexcept {
       actor& a = actors[i];
       current_actor = &a;
+      setup_thread(i);
       create_context(a);
       app_state::start_clients(a, opts);
       ready.count_down();

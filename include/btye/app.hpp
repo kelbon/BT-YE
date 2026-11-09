@@ -19,7 +19,7 @@ using actor_context_factory_t = aa::move_only_fn<hidi::any_io_context() noexcept
 actor_context_factory_t default_actor_context_factory();
 
 struct app_options {
-  // 0 - std::thread::hardware_concurrency() (минимум 1)
+  // если 0, то берётся число процессоров, доступных процессу (available_cpus)
   size_t actors_count = 0;
   // SIGINT/SIGTERM (Windows - Ctrl+C, Ctrl+Break) вызывают request_stop. Когда остановка началась, повторный
   // сигнал обрабатывается системой как обычно (обычно завершает процесс)
@@ -27,14 +27,13 @@ struct app_options {
   // при падении (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS) печатает сигнал и стек в stderr, затем процесс
   // падает как без обработчика. Обработчики ставятся на время run
   bool handle_crash = true;
-  // пул клиентов по умолчанию на каждом акторе (client_to), останавливается в фазе clients. nullopt - без него
-  std::optional<client_pool_options> clients = client_pool_options{};
-  // TODO bind2cpu - биндить ли акторов к тредам
-  // TODO? размер стека файбера/потока + ставить ли имена потокам (ну типа актор1 актор2)
+  // настройки клиент пула на каждом акторе (nullopt - без него)
+  std::optional<client_pool_options> connection_pool_options = client_pool_options{};
+  // актор i привязывается к процессору available_cpus()[i % их число]. Поток, вызвавший run (актор 0), тоже
+  // и остаётся привязанным после run. Если не удалось или ОС не поддерживает (macOS) - сообщение в stderr
+  bool pin_to_cpu = false;
   // TODO? опции сталл детектора, включать ли его, что считать сталлом мб ещё что-то
 };
-
-// TODO client pool?
 
 /*
 Одновременно может выполняться только один `run`
@@ -56,9 +55,7 @@ int run(app_options, aa::move_only_fn<dd::task<int>()> main,
 */
 void request_stop() noexcept;
 
-// Ждёт конца остановки: прошли все фазы на всех акторах. Возвращается на актор, где вызвана. Только на акторе.
-// Не из обработчика фазы (никогда не дождётся)
-// Так `main` переживает объекты, которые останавливаются в фазах:
+// ждёт полного завершения текущего run. Нельзя вызывать из on_stop акторов (дедлок)
 //   co_await server.start(); ...; co_await btye::wait_stopped(); co_return 0;
 dd::task<void> wait_stopped();
 

@@ -20,6 +20,7 @@ add_library(btyelib STATIC
     src/btye/sleep.cpp
     src/btye/client_pool.cpp
     src/btye/actor.cpp
+    src/btye/utils/thread_tune.cpp
 )
 
 target_include_directories(btyelib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
