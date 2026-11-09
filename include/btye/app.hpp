@@ -82,4 +82,11 @@ void request_stop() noexcept;
 //   co_await server.start(); ...; co_await btye::wait_stopped(); co_return 0;
 dd::task<void> wait_stopped();
 
+// можно вызывать пока работает `run`
+// запускает задачу 'f' на пуле для блокирующих задач (если он есть, иначе исключение)
+template <typename F>
+dd::task<std::invoke_result_t<F&>> offload(F f) {
+  return local_actor_ref().offpool().offload(std::move(f));
+}
+
 }  // namespace btye

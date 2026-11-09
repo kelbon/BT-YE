@@ -130,11 +130,16 @@ struct app_state {
       actor& a = local_actor_ref();
       a.is_stopped = true;
       a.stop_src.request_abort();
-      co_await a.offload_gate.close();
+      co_return;
     });
     // invoke_on_all возвращается, когда фаза закончилась на всех акторах
     for (size_t p = 0; p < size_t(stop_phases_e::COUNT); ++p)
       co_await invoke_on_all([p] { return run_phase(stop_phases_e(p)); });
+
+    co_await invoke_on_all([]() -> dd::task<void> {
+      actor& a = local_actor_ref();
+      co_await a.offload_gate.close();
+    });
     s.stopped.open(s.actors[0]);
     s.background_done();
   }
@@ -262,10 +267,10 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
 
   app_state::start_main(s, main);
   app_state::run_loop(a0);
-  if (s.ofpool)  // задач там уже быть не должно, всех дождались offload_gate акторов
-    s.ofpool.reset();
   foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
+  if (s.ofpool)  // задач там уже быть не должно, всех дождались offload_gate акторов
+    s.ofpool.reset();
   app_state::destroy_clients(a0);
   a0.ioctx().reset();
   current_actor = nullptr;

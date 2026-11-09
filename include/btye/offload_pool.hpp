@@ -22,7 +22,6 @@ struct offload_pool {
   explicit offload_pool(offload_pool_options);
 
   // можно вызывать только с актора
-  // `home` - где проснётся делающий co_await offload
   template <typename F>
   dd::task<std::invoke_result_t<F&>> offload(F fn) {
     actor& home = local_actor_ref();
