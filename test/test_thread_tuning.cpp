@@ -44,7 +44,7 @@ TEST("set_current_thread_name: long name is cut to 15 bytes by UTF-8 character b
 TEST("actor threads are named actor_N, the caller keeps its name") {
   btye::set_current_thread_name("test_main");
   std::vector<std::string> names(3);
-  int code = btye::run(actors(3), [&]() -> dd::task<int> {
+  int code = btye::run(btye::app_options{.actors_count = 3, .name_threads = true}, [&]() -> dd::task<int> {
     co_await btye::invoke_on_all([&] { names[local_actor()->id()] = current_thread_name(); });
     co_return 0;
   });
