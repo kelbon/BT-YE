@@ -16,6 +16,7 @@ namespace {
 // any_client пула: держит клиента до конца запроса
 struct pooled_client {
   std::shared_ptr<hidi::h2client> client;
+  dbg_actor_ref home;
 
   static dd::task<int> send(std::shared_ptr<hidi::h2client> c, hidi::client_request_context& ctx,
                             hidi::on_header_fn_ptr on_header, hidi::on_data_part_fn_ptr on_data_part,
@@ -26,6 +27,7 @@ struct pooled_client {
   dd::task<int> send_request(hidi::client_request_context& ctx, hidi::on_header_fn_ptr on_header,
                              hidi::on_data_part_fn_ptr on_data_part, hidi::http_request req,
                              hidi::deadline_t deadline) {
+    home.check();
     return send(client, ctx, on_header, on_data_part, std::move(req), deadline);
   }
 };

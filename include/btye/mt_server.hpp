@@ -106,6 +106,8 @@ struct mt_server {
 
   // если сервер работает, он останавливается в фоне без ожидания запросов (terminate). Только на акторе
   ~mt_server() {
+    assert((!m->servers.started() || local_actor_ref().id() == m->home) &&
+           "mt_server is destroyed on another actor than start");
     on_stop = {};
     // если остановка уже идёт, её задача сама держит impl
     if (m->servers.started() && !m->stopping.closed())

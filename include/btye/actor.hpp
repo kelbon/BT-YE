@@ -34,6 +34,11 @@ enum struct stop_phases_e : size_t {
 // Подписка на фазу остановки, см. actor::on_stop. Отписывается при разрушении
 using stop_subscription = noexport::subscription<aa::move_only_fn<dd::task<void>()>>;
 
+struct actor;
+
+// Актор текущего потока. nullptr - поток не актор
+[[nodiscard]] actor* local_actor() noexcept;
+
 // Поток со своим циклом событий. Создаются и живут внутри btye::run
 // TODO actor local
 // на каждом акторе unordered_map<ключ, aa::any>
@@ -78,6 +83,7 @@ struct actor {
 
   // отменяется в начале остановки, на всех акторах до фаз: после stopped() == true. Только на этом акторе
   [[nodiscard]] abort_source& stop_source() noexcept {
+    assert(local_actor() == this && "stop_source of another actor");
     return stop_src;
   }
 
@@ -95,9 +101,6 @@ struct actor {
     return ctx;
   }
 };
-
-// Актор текущего потока. nullptr - поток не актор
-[[nodiscard]] actor* local_actor() noexcept;
 
 // актор текущего потока, assert что поток - актор
 [[nodiscard]] inline actor& local_actor_ref() noexcept {
@@ -161,5 +164,31 @@ struct jump_on_actor : dd::task_node {
 [[nodiscard]] inline noexport::jump_on_actor<false> yield() noexcept {
   return noexport::jump_on_actor<false>(local_actor_ref());
 }
+
+#ifndef NDEBUG
+
+struct dbg_actor_ref {
+ private:
+  actor* a;
+
+ public:
+  dbg_actor_ref(actor* x = local_actor()) noexcept : a(x) {
+    assert(a != nullptr && "must be created on actor");
+  }
+  void check() noexcept {
+    assert(a == local_actor() && "used on not home actor");
+  }
+};
+
+#else
+
+struct dbg_actor_ref {
+  dbg_actor_ref(actor* = nullptr) noexcept {
+  }
+  void check() noexcept {
+  }
+};
+
+#endif
 
 }  // namespace btye
