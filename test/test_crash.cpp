@@ -66,7 +66,7 @@ static std::pair<std::string, int> crash_in_child(void (*crash)()) {
 }
 
 static void null_write() {
-  int* volatile p = nullptr;
+  volatile int* volatile p = nullptr;
   *p = 1;
 }
 
