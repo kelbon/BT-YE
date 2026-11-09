@@ -39,7 +39,7 @@ using actor_context_factory_t = aa::move_only_fn<hidi::any_io_context() noexcept
 actor_context_factory_t default_actor_context_factory();
 
 struct app_options {
-  // если 0, то берётся число процессоров, доступных процессу (available_cpus)
+  // 0 - std::thread::hardware_concurrency() (минимум 1)
   size_t actors_count = 0;
   // SIGINT/SIGTERM (Windows - Ctrl+C, Ctrl+Break) вызывают request_stop. Когда остановка началась, повторный
   // сигнал обрабатывается системой как обычно (обычно завершает процесс)

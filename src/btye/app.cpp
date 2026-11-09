@@ -206,8 +206,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   aa::move_only_fn<void() noexcept> restore_crash_handlers;
   if (opts.handle_crash)
     restore_crash_handlers = noexport::handle_crash();
-  std::vector<size_t> cpus = available_cpus();
-  size_t n = opts.actors_count ? opts.actors_count : cpus.size();
+  size_t n = opts.actors_count ? opts.actors_count : std::max(1u, std::thread::hardware_concurrency());
   std::unique_ptr<actor[]> actors(new actor[n]);
   app_state s{.actors = {actors.get(), n}};
   s.stopped.close();
