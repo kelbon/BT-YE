@@ -1,5 +1,6 @@
 #include "btye/app.hpp"
 #include "btye/invoke.hpp"
+#include "btye/io.hpp"
 
 #include "crash.hpp"
 #include "interrupt.hpp"
@@ -43,6 +44,19 @@ struct app_state {
     a.idx = i;
   }
 
+  // на потоке актора, после создания контекста
+  static void start_clients(actor& a, const app_options& o) noexcept {
+    if (!o.clients)
+      return;
+    local_client_pool& p = a.clients.emplace([] { return local_io_ref(); }, *o.clients);
+    a.clients_stop = a.on_stop(stop_phases_e::clients, [&p] { return p.stop(); });
+  }
+
+  // на потоке актора, когда циклы закончились (пул уже остановлен в фазе clients)
+  static void destroy_clients(actor& a) noexcept {
+    a.clients.reset();
+  }
+
   static void run_loop(actor& a) noexcept {
     a.ctx.run();
   }
@@ -76,12 +90,6 @@ struct app_state {
       log_exception("background task", std::current_exception());
     }
     s.background_done();
-  }
-
-  static stop_subscription subscribe_stop(actor& a, stop_phases_e p, aa::move_only_fn<dd::task<void>()> fn) {
-    stop_subscription sub(std::move(fn));
-    a.stop_handlers[size_t(p)].push_back(sub);
-    return sub;
   }
 
   // обработчики фазы `p` текущего актора параллельно, ждёт все
@@ -157,12 +165,6 @@ actor_context_factory_t default_actor_context_factory() {
   return [] noexcept { return hidi::make_asio_io_context(); };
 }
 
-stop_subscription actor::on_stop(stop_phases_e p, aa::move_only_fn<dd::task<void>()> handler) {
-  assert(current_actor == this && "on_stop must be called on the actor's thread");
-  assert(!is_stopped && "on_stop called after the stop started");
-  return noexport::app_state::subscribe_stop(*this, p, std::move(handler));
-}
-
 actor* local_actor() noexcept {
   return current_actor;
 }
@@ -212,6 +214,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   actor& a0 = actors[0];
   current_actor = &a0;
   create_context(a0);
+  app_state::start_clients(a0, opts);
   if (opts.handle_interrupt)
     s.stop_interrupt = noexport::handle_interrupt(a0);
 
@@ -224,9 +227,11 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
       actor& a = actors[i];
       current_actor = &a;
       create_context(a);
+      app_state::start_clients(a, opts);
       ready.count_down();
       app_state::run_loop(a);
       loops_done.arrive_and_wait();
+      app_state::destroy_clients(a);
       a.ioctx().reset();
       current_actor = nullptr;
     });
@@ -239,6 +244,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   app_state::run_loop(a0);
   foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
+  app_state::destroy_clients(a0);
   a0.ioctx().reset();
   current_actor = nullptr;
   for (std::thread& t : threads)
