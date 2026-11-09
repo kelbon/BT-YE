@@ -32,10 +32,9 @@ struct app_options {
   std::optional<client_pool_options> connection_pool = client_pool_options{};
   // пул для блокирующих задач. nullopt = не создавать
   std::optional<offload_pool_options> offload_pool = offload_pool_options{};
-
-  // актор i привязывается к процессору available_cpus()[i % их число]. Поток, вызвавший run (актор 0), тоже
-  // и остаётся привязанным после run. Если не удалось или ОС не поддерживает (macOS) - сообщение в stderr
-  bool pin_to_cpu = false;
+  // даёт имена потокам - actor_1, _2 и так далее
+  // главному потоку имя не меняет. Имена в Блокирующем пуле отдельная настройка
+  bool name_threads = false;
   // TODO? опции сталл детектора, включать ли его, что считать сталлом мб ещё что-то
 };
 

@@ -7,6 +7,8 @@
 namespace btye {
 
 offload_pool::offload_pool(offload_pool_options opts) : tp(std::max<size_t>(1, opts.threads_count)) {
+  if (!opts.name_threads)
+    return;
   std::span workers = tp.workers_range();
   size_t n = workers.size();
   std::latch all_started(n);

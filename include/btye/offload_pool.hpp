@@ -1,3 +1,5 @@
+#pragma once
+
 #include <kelcoro/task.hpp>
 #include <kelcoro/thread_pool.hpp>
 
@@ -7,7 +9,8 @@ namespace btye {
 
 struct offload_pool_options {
   // если 0, то ставится 1
-  size_t threads_count = 10;  // TODO 0
+  size_t threads_count = 0;
+  bool name_threads = false;
 };
 
 struct offload_pool {
@@ -21,20 +24,30 @@ struct offload_pool {
   // можно вызывать только с актора
   // `home` - где проснётся делающий co_await offload
   template <typename F>
-  dd::task<std::invoke_result_t<F>> offload(F fn, actor& dest = local_actor_ref()) {
-    if (!co_await dd::jump_on(tp)) {
-      // cancel вызывается на акторе где делается destroy
-      co_await jump_on(dest);
-      throw std::runtime_error("offload task was canceled due to app stop");
-    }
-    auto& p = (co_await dd::this_coro::handle).promise();
+  dd::task<std::invoke_result_t<F&>> offload(F fn) {
+    actor& home = local_actor_ref();
+    if (!home.offload_gate.try_enter())
+      throw std::runtime_error("cannot offload when stopping");
+    on_scope_exit {
+      home.offload_gate.leave();
+    };
+    auto status = co_await dd::jump_on(tp);
+    assert(status);
+    (void)status;
+    auto h = co_await dd::this_coro::handle;
+    auto& p = h.promise();
+    constexpr bool is_void = std::is_void_v<std::invoke_result_t<F&>>;
     try {
-      p.return_place(fn());
+      if constexpr (!is_void)
+        p.return_place(fn());
+      else
+        fn();
     } catch (...) {
       p.set_exception(std::current_exception());
     }
-    co_await jump_on(dest);
-    co_return dd::rvo;
+    co_await jump_on(home);
+    if constexpr (!is_void)
+      co_return dd::rvo;
   }
 };
 

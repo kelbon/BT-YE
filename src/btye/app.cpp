@@ -130,14 +130,12 @@ struct app_state {
       actor& a = local_actor_ref();
       a.is_stopped = true;
       a.stop_src.request_abort();
-      co_return;
+      co_await a.offload_gate.close();
     });
     // invoke_on_all возвращается, когда фаза закончилась на всех акторах
     for (size_t p = 0; p < size_t(stop_phases_e::COUNT); ++p)
       co_await invoke_on_all([p] { return run_phase(stop_phases_e(p)); });
     s.stopped.open(s.actors[0]);
-    if (s.ofpool)
-      s.ofpool.reset();  // ждём всех кто там работал, некоторые прыгнут обратно на акторов
     s.background_done();
   }
 
@@ -221,11 +219,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   // на потоке актора до создания контекста: память контекста выделяется уже на его процессоре
   auto setup_thread = [&](size_t i) noexcept {
     // имя главного потока не меняется: на Linux это имя процесса (ps, top, killall)
-    if (i != 0)
+    if (i != 0 && opts.name_threads)
       set_current_thread_name(std::format("actor_{}", i));
-    size_t cpu = cpus[i % cpus.size()];
-    if (opts.pin_to_cpu && !pin_current_thread_to_cpu(cpu))
-      std::println(stderr, "btye: cannot pin actor {} to cpu {}", i, cpu);
   };
 
   auto create_context = [&](actor& a) noexcept {
@@ -268,6 +263,8 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
 
   app_state::start_main(s, main);
   app_state::run_loop(a0);
+  if (s.ofpool)  // задач там уже быть не должно, всех дождались offload_gate акторов
+    s.ofpool.reset();
   foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
   app_state::destroy_clients(a0);
