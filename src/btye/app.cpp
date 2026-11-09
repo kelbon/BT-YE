@@ -48,7 +48,7 @@ struct app_state {
   static void start_clients(actor& a, const app_options& o) noexcept {
     if (!o.clients)
       return;
-    local_client_pool& p = a.clients.emplace([] { return local_io_ref(); }, *o.clients);
+    local_client_pool& p = a.clients.emplace(*o.clients);
     a.clients_stop = a.on_stop(stop_phases_e::clients, [&p] { return p.stop(); });
   }
 

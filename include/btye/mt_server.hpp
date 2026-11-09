@@ -63,7 +63,7 @@ struct mt_server {
   // мягко (h2server::shutdown) или нет (terminate), затем разрушение серверов. Возвращается на актор `home`
   static dd::task<void> stop(std::shared_ptr<impl> m, bool graceful, hidi::deadline_t d) {
     co_await jump_on_actor(m->home);
-    if (m->stopping.closed()) {  // останавливает другой: дождались его конца
+    if (m->stopping.closed()) {
       (void)co_await m->stopping.wait_open();
       co_return;
     }

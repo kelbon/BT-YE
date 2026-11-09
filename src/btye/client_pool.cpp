@@ -1,5 +1,6 @@
 #include "btye/client_pool.hpp"
 #include "btye/actor.hpp"
+#include "btye/io.hpp"
 
 #include <boost/container_hash/hash.hpp>
 #include <kelcoro/job.hpp>
@@ -7,7 +8,6 @@
 #include <functional>
 #include <stdexcept>
 #include <variant>
-#include <vector>
 
 namespace btye {
 
@@ -43,44 +43,44 @@ size_t local_client_pool::key_hash::operator()(const key& k) const noexcept {
              k.dest.addr);
   boost::hash_combine(h, k.dest.port);
   boost::hash_combine(h, k.params.ssl.p.get());
-  if (k.params.src) {
-    boost::hash_combine(h, std::hash<hidi::ip_addr>{}(k.params.src->address()));
-    boost::hash_combine(h, k.params.src->port());
+  if (k.params.src_addr) {
+    boost::hash_combine(h, std::hash<hidi::ip_addr>{}(k.params.src_addr->address()));
+    boost::hash_combine(h, k.params.src_addr->port());
   }
   return h;
 }
 
-local_client_pool::local_client_pool(aa::move_only_fn<hidi::any_io_context()> make_io_,
-                                     client_pool_options o)
-    : make_io(std::move(make_io_)), options(std::move(o)), gc_timer(make_io().create_timer()) {
+local_client_pool::local_client_pool(client_pool_options o)
+    : options(std::move(o)), gc_timer(create_timer()) {
   gc_timer.set_callback([this](bool canceled) {
     if (!canceled)
       collect();
   });
-  gc_timer.arm_periodic(options.idle_timeout / 2);
+  // так в среднем будет выходить idle_timeout
+  gc_timer.arm_periodic(options.idle_timeout * 2 / 3);
 }
 
 local_client_pool::~local_client_pool() {
   assert(stopped && clients.empty() && "local_client_pool must be stopped before destruction");
 }
 
-svarg::cxx_support::any_client local_client_pool::get(hidi::endpoint dest, client_params params) {
+raw_client local_client_pool::get_client_to(hidi::endpoint dest, client_params params) {
   if (stopped)
     throw std::runtime_error("btye: client pool is stopped");
   auto [it, inserted] = clients.try_emplace(key{std::move(dest), std::move(params)});
   entry& e = it->second;
   if (inserted) {
-    try {
-      const key& k = it->first;
-      e.client = std::make_shared<hidi::h2client>(k.dest, k.params.ssl, options.client, make_io());
-      e.client->set_local(k.params.src);
-    } catch (...) {
+    const key& k = it->first;
+    on_scope_failure(eraseclient) {
       clients.erase(it);
-      throw;
-    }
+    };
+    e.client =
+        std::make_shared<hidi::h2client>(k.dest, k.params.ssl, options.eachclient_options, local_io_ref());
+    e.client->set_local(k.params.src_addr);
+    eraseclient.no_longer_needed();
   }
   e.used = true;
-  return svarg::cxx_support::any_client(pooled_client{e.client});
+  return raw_client(pooled_client{e.client});
 }
 
 void local_client_pool::collect() noexcept {
@@ -106,20 +106,17 @@ dd::task<void> local_client_pool::stop() {
     co_return;
   stopped = true;
   gc_timer.cancel();
-  std::vector<std::shared_ptr<hidi::h2client>> all;
-  for (auto& [_, e] : clients)
-    all.push_back(std::move(e.client));
-  clients.clear();
-  for (std::shared_ptr<hidi::h2client>& c : all)
-    co_await c->graceful_stop();
+  auto c = std::move(clients);
+  for (auto& [_, v] : c)
+    co_await v.client->graceful_stop();
   co_await retiring.close();
 }
 
-svarg::cxx_support::any_client client_to(hidi::endpoint dest, client_params params) {
+raw_client client_to(hidi::endpoint dest, client_params params) {
   actor& a = local_actor_ref();
   if (!a.clients)
-    throw std::logic_error("btye: default client pool is disabled (app_options::clients)");
-  return a.clients->get(std::move(dest), std::move(params));
+    throw std::logic_error("btye: no client pool available");
+  return a.clients->get_client_to(std::move(dest), std::move(params));
 }
 
 }  // namespace btye

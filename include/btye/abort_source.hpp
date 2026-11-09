@@ -10,7 +10,7 @@ namespace btye {
 // после этого aborted() навсегда true
 struct abort_source {
   // Подписка на отмену, см. subscribe. Отписывается при разрушении
-  using subscription = noexport::subscription<aa::move_only_fn<void() noexcept>, abort_source>;
+  using subscription = noexport::subscription<aa::move_only_fn<void() noexcept>>;
 
  private:
   noexport::subscriptions_list<subscription> subscriptions;

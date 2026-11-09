@@ -1,10 +1,13 @@
 #pragma once
 
+#include <optional>
+
 #include <anyany/anyany.hpp>
 #include <kelcoro/task.hpp>
 #include <hidi/utils/any_io_context.hpp>
 
 #include "btye/actor.hpp"
+#include "btye/client_pool.hpp"
 
 namespace btye {
 
@@ -24,6 +27,8 @@ struct app_options {
   // при падении (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS) печатает сигнал и стек в stderr, затем процесс
   // падает как без обработчика. Обработчики ставятся на время run
   bool handle_crash = true;
+  // пул клиентов по умолчанию на каждом акторе (client_to), останавливается в фазе clients. nullopt - без него
+  std::optional<client_pool_options> clients = client_pool_options{};
   // TODO bind2cpu - биндить ли акторов к тредам
   // TODO? размер стека файбера/потока + ставить ли имена потокам (ну типа актор1 актор2)
   // TODO? опции сталл детектора, включать ли его, что считать сталлом мб ещё что-то

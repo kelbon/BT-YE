@@ -7,21 +7,11 @@
 
 namespace btye::noexport {
 
-// Колбек `F` в интрузивном списке источника `Owner` (только он создаёт и вызывает). Отписывается при
-// разрушении. Пустая (по умолчанию или после перемещения из неё) ни на что не подписана
-template <typename F, typename Owner>
+template <typename F>
 struct subscription
     : boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
- private:
   F fn;
 
-  friend Owner;
-
-  explicit subscription(F f) noexcept : fn(std::move(f)) {
-    assert(fn && "subscription to an empty callback");
-  }
-
- public:
   subscription() = default;
 
   // встаёт в список источника на место `o`
@@ -35,6 +25,10 @@ struct subscription
       swap_nodes(o);
     }
     return *this;
+  }
+
+  explicit subscription(F f) noexcept : fn(std::move(f)) {
+    assert(fn && "subscription to an empty callback");
   }
 };
 

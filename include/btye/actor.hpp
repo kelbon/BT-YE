@@ -3,14 +3,15 @@
 #include <array>
 #include <cassert>
 #include <coroutine>
+#include <optional>
 #include <span>
-#include <vector>
 
 #include <anyany/anyany.hpp>
 #include <kelcoro/executor_interface.hpp>
 #include <kelcoro/task.hpp>
 #include <hidi/utils/any_io_context.hpp>
 
+#include "btye/client_pool.hpp"
 #include "btye/abort_source.hpp"
 #include "btye/subscription.hpp"
 
@@ -31,7 +32,7 @@ enum struct stop_phases_e : size_t {
 };
 
 // Подписка на фазу остановки, см. actor::on_stop. Отписывается при разрушении
-using stop_subscription = noexport::subscription<aa::move_only_fn<dd::task<void>()>, noexport::app_state>;
+using stop_subscription = noexport::subscription<aa::move_only_fn<dd::task<void>()>>;
 
 // Поток со своим циклом событий. Создаются и живут внутри btye::run
 // TODO actor local
@@ -42,6 +43,10 @@ struct actor {
   noexport::app_state* app = nullptr;
   // только на потоке актора
   std::array<noexport::subscriptions_list<stop_subscription>, size_t(stop_phases_e::COUNT)> stop_handlers;
+  // пул клиентов по умолчанию (client_to): создаётся и разрушается на потоке актора, nullopt - выключен
+  // (app_options::clients). Останавливается в фазе clients
+  std::optional<local_client_pool> clients;
+  stop_subscription clients_stop;
   abort_source stop_src;
   size_t idx = 0;
   bool is_stopped = false;
@@ -49,6 +54,7 @@ struct actor {
   friend struct noexport::app_state;
   friend std::span<actor> all_actors() noexcept;
   friend void run_in_background(dd::task<void>);
+  friend raw_client client_to(hidi::endpoint, client_params);
 
  public:
   actor() = default;

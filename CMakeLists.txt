@@ -13,11 +13,13 @@ endif()
 include(cmake/deps.cmake)
 
 add_library(btyelib STATIC
-    src/app.cpp
-    src/io.cpp
-    src/interrupt.cpp
-    src/crash.cpp
-    src/sleep.cpp
+    src/btye/app.cpp
+    src/btye/io.cpp
+    src/btye/interrupt.cpp
+    src/btye/crash.cpp
+    src/btye/sleep.cpp
+    src/btye/client_pool.cpp
+    src/btye/actor.cpp
 )
 
 target_include_directories(btyelib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -27,6 +29,7 @@ target_link_libraries(btyelib PUBLIC
     anyanylib
     kelcorolib
     hidilib
+    svarg_cxx_supportlib
     Boost::stacktrace
     zallib
 )
