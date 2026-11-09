@@ -68,7 +68,8 @@ auto unwrap_arg(per_actor_param<F>& p) {
 }  // namespace noexport
 
 // экземпляр T на каждом акторе, создаётся и разрушается на своём акторе
-// только с актора. Перед разрушением - co_await stop()
+// перед разрушением требуется вызвать co_await stop()
+// используе adl per_actor_shutdown(T&) для остановки если есть
 template <typename T>
 struct per_actor {
  private:
@@ -110,30 +111,29 @@ struct per_actor {
     }
   }
 
-  // T::stop() (если есть, void или dd::task<void>) на всех акторах параллельно, затем экземпляры
-  // разрушаются, каждый на своём акторе. Исключение из T::stop() пробрасывается после разрушения
+  // вызывает adl перегрузку per_actor_shutdown(T&) -> dd::task<void>) если есть
+  // исключение из per_actor_shutdown пробрасывается после разрушения
   dd::task<void> stop() {
     if (instances.size() == 0)
       co_return;
-    dd::task<void> stopall = btye::invoke_on_all([&]() -> dd::task<void> {
-      T* t = local_ptr();
-      if constexpr (requires { t->stop(); }) {
-        if (!t)
-          co_return;
-        if constexpr (std::is_void_v<decltype(t->stop())>)
-          t->stop();
-        else
-          co_await t->stop();
-      }
-      co_return;
-    });
-    co_await stopall.wait();
+    static constexpr bool has_per_actor_shutdown = requires(T& x) { per_actor_shutdown(x); };
+    dd::task<void> stopall;
+    if constexpr (has_per_actor_shutdown) {
+      stopall = btye::invoke_on_all([&]() -> dd::task<void> {
+        T* t = local_ptr();
+        if (t)  // при исключении в start незаполнено
+          co_await per_actor_shutdown(*t);
+      });
+      co_await stopall.wait();
+    }
+    // в два прохода, так как инстансы могут держать ссылки друг на друга
     co_await btye::invoke_on_all([&]() -> dd::task<void> {
       instances[local_actor()->id()].reset();
       co_return;
     });
     instances = {};
-    stopall.get();  // may be rethrow
+    if constexpr (has_per_actor_shutdown)
+      stopall.get();  // may be rethrow
   }
 
   // start начат и stop ещё не закончен

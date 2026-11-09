@@ -32,19 +32,9 @@ inline aa::move_only_fn<size_t() noexcept> round_robin() {
 template <std::derived_from<hidi::h2server> S>
 struct mt_server {
  private:
-  // per_actor::stop вызвал бы S::stop, а h2server::stop блокирует поток до остановки сервера. Поэтому в
-  // per_actor лежит обёртка без stop
-  struct holder {
-    S server;
-
-    template <typename... Args>
-    explicit holder(Args&&... args) : server(std::forward<Args>(args)...) {
-    }
-  };
-
   // живёт, пока жив mt_server или идёт его остановка
   struct impl {
-    per_actor<holder> servers;
+    per_actor<S> servers;
     // вызывается только на акторе 0, где идёт раздача
     aa::move_only_fn<size_t() noexcept> choose;
     // актор start: servers запускаются и останавливаются только с него
@@ -73,9 +63,9 @@ struct mt_server {
     std::exception_ptr err;
     try {
       if (graceful)
-        co_await m->servers.invoke_on_all([d](holder& h) { return h.server.shutdown(d); });
+        co_await m->servers.invoke_on_all([d](S& s) { return s.shutdown(d); });
       else
-        co_await m->servers.invoke_on_all([](holder& h) { return h.server.terminate(); });
+        co_await m->servers.invoke_on_all([](S& s) { return s.terminate(); });
     } catch (...) {
       err = std::current_exception();
     }
@@ -100,7 +90,7 @@ struct mt_server {
     // сервер на нём ещё жив
     run_in_background([](std::shared_ptr<impl> m, size_t id, hidi::any_connection_t con) -> dd::task<void> {
       co_await jump_on_actor(id);
-      m->servers.local().server.serve(std::move(con));
+      m->servers.local().serve(std::move(con));
     }(std::move(m), id, std::move(con)));
   }
 
@@ -139,7 +129,7 @@ struct mt_server {
   // после start. Можно вызывать несколько раз с разными адресами
   hidi::internet_address listen0(hidi::server_endpoint e) {
     assert(local_actor_ref().id() == 0 && "listen0 must be called on the actor 0");
-    S& s = m->servers.local().server;
+    S& s = m->servers.local();
     // weak: сервер, а с ним и колбек, живёт внутри impl
     s.set_accept_callback([w = std::weak_ptr(m)](hidi::any_connection_t con) {
       if (std::shared_ptr<impl> p = w.lock())
@@ -163,7 +153,7 @@ struct mt_server {
 
   // экземпляр S текущего актора
   S& local() noexcept {
-    return m->servers.local().server;
+    return m->servers.local();
   }
 };
 

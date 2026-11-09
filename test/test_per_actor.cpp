@@ -30,11 +30,17 @@ struct counter {
   ~counter() {
     j->destroyed_on[id] = local_actor()->id();
   }
-  dd::task<void> stop() {
-    co_await btye::yield();
-    j->stopped_on[id] = local_actor()->id();
+  // stop() у типа per_actor не вызывает, только per_actor_shutdown
+  void stop() {
+    FAIL();
   }
 };
+
+// находится через ADL
+dd::task<void> per_actor_shutdown(counter& c) {
+  co_await btye::yield();
+  c.j->stopped_on[c.id] = local_actor()->id();
+}
 
 APP_TEST("per_actor: start, local, invoke, stop", .actors_count = 3) {
   journal j(3);
