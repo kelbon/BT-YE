@@ -124,6 +124,7 @@ struct mailbox {
   partial_result<R> got;
   bool filled = false;
   std::coroutine_handle<> receiver;
+  // за компанию здесь приютились, чтобы не аллоцировать отдельно
   KELCORO_NO_UNIQUE_ADDRESS Map map;
   KELCORO_NO_UNIQUE_ADDRESS Reduce reduce;
 
