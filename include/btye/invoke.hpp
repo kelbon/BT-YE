@@ -1,6 +1,11 @@
 #pragma once
 
+#include <coroutine>
+#include <exception>
+#include <optional>
+#include <span>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <kelcoro/algorithm.hpp>
@@ -114,11 +119,16 @@ dd::task<void> merge(partial_result<R>& left, partial_result<R> right, Reduce& r
 }
 
 // используется только на акторе получателя
-template <typename R>
+template <typename R, typename Map, typename Reduce>
 struct mailbox {
   partial_result<R> got;
   bool filled = false;
   std::coroutine_handle<> receiver;
+  KELCORO_NO_UNIQUE_ADDRESS Map map;
+  KELCORO_NO_UNIQUE_ADDRESS Reduce reduce;
+
+  mailbox(const Map& m, const Reduce& r) : map(m), reduce(r) {
+  }
 
   void put(partial_result<R> r) {
     got = std::move(r);
@@ -165,24 +175,23 @@ struct mailbox {
 // Если акторов не степень двойки, у кого нет пары на шаге - пропускает его: при 5 акторах 4 ждёт до шага 4
 // и идёт к 0
 template <typename R, typename Map, typename Reduce>
-dd::task<void> tree_node(size_t i, Map map, Reduce reduce, std::span<mailbox<R>> mail,
-                         partial_result<R>& result) {
+dd::task<void> tree_node(size_t i, std::span<mailbox<R, Map, Reduce>> mail, partial_result<R>& result) {
   co_await jump_on_actor(i);
   partial_result<R> mine;
   try {
-    mine.value.emplace(co_await call(map));
+    mine.value.emplace(co_await call(mail[i].map));
   } catch (...) {
     mine.error = std::current_exception();
   }
   assert(local_actor()->id() == i);
   for (size_t step = 1; step < mail.size(); step *= 2) {
-    if (i & step) {  // здесь эквивалентно if (i % (2 * step) != 0
+    if (i & step) {  // здесь эквивалентно if (i % (2 * step) != 0)
       co_await jump_on(get_actor(i - step));
       mail[i].put(std::move(mine));  // каждый записывает значение ровно один раз
       co_return;
     }
     if (i + step < mail.size()) {
-      co_await merge(mine, co_await mail[i + step], reduce);
+      co_await merge(mine, co_await mail[i + step], mail[i].reduce);
       assert(local_actor()->id() == i);
     }
   }
@@ -196,24 +205,24 @@ dd::task<void> tree_node(size_t i, Map map, Reduce reduce, std::span<mailbox<R>>
 // reduce(R, R) -> R или dd::task<R>
 // Свёртки идут параллельно на разных акторах, последняя - на акторе 0, результат приходит вызывающему
 // Для ассоциативной reduce результат = reduce(...reduce(reduce(r0, r1), r2)..., rN-1),
-// коммутативность не нужна. У каждого актора свои копии map и reduce
+// коммутативность не нужна. У каждого актора свои копии map и reduce: создаются и разрушаются на текущем
 // Ждёт все, затем пробрасывает исключение (если их несколько - с акторов с меньшими номерами)
 // Note: результаты map могут быть разрушены не на тех акторах, на которых созданы
 template <typename Map, typename Reduce>
 dd::task<await_invoke_result_t<Map&>> map_reduce_on_all(Map map, Reduce reduce) {
   using R = await_invoke_result_t<Map&>;
   static_assert(!std::is_void_v<R>, "use invoke_on_all");
-  static_assert(std::is_convertible_v<std::invoke_result_t<Reduce&, R, R>, R>);
+  static_assert(std::is_convertible_v<await_invoke_result_t<Reduce, R, R>, R>);
   actor& from = local_actor_ref();
-  std::vector<noexport::mailbox<R>> mail(all_actors().size());
+  metel::fixed_array<noexport::mailbox<R, Map, Reduce>> mail(all_actors().size(), std::in_place, map, reduce);
   noexport::partial_result<R> result;
   // все узлы запускаются сразу, копии map и reduce создаются здесь
   // Узел текущего актора последним: он начинает map без перехода, остальные к этому моменту уже ушли
   std::vector<dd::task<void>> nodes;
   for (actor& a : all_actors())
     if (&a != &from)
-      nodes.push_back(noexport::tree_node<R>(a.id(), map, reduce, mail, result));
-  nodes.push_back(noexport::tree_node<R>(from.id(), map, reduce, mail, result));
+      nodes.push_back(noexport::tree_node<R>(a.id(), std::span(mail), result));
+  nodes.push_back(noexport::tree_node<R>(from.id(), std::span(mail), result));
   co_await noexport::wait_all(std::move(nodes));
   co_await jump_on(from);
   if (result.error)
