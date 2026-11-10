@@ -118,8 +118,8 @@ struct mt_server {
   // ссылке и должны жить до завершения start (при co_await server.start(...) это так)
   // start и разрушение mt_server - на одном акторе, start - до остановки приложения и один раз
   template <typename... Args>
-  dd::task<void> start(hidi::server_ssl_context_ptr ssl = nullptr, hidi::h2server_options options = {},
-                       Args&&... args) {
+  dd::task<void> start(hidi::server_ssl_context_ptr ssl = nullptr,
+                       hidi::h2server_options options = hidi::h2server_options::hardened(), Args&&... args) {
     m->home = local_actor_ref().id();
     co_await m->servers.start(std::move(ssl), std::move(options), local_io_ref_param,
                               std::forward<Args>(args)...);
@@ -130,6 +130,7 @@ struct mt_server {
   // Слушает `e` на акторе 0, возвращает адрес, на котором слушает (нужен при порте 0). Только на акторе 0,
   // после start. Можно вызывать несколько раз с разными адресами
   hidi::internet_address listen0(hidi::server_endpoint e) {
+    // TODO только на home
     assert(local_actor_ref().id() == 0 && "listen0 must be called on the actor 0");
     S& s = m->servers.local();
     // weak: сервер, а с ним и колбек, живёт внутри impl

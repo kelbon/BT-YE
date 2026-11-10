@@ -36,7 +36,6 @@ dd::task<await_invoke_result_t<F>> call(F& fn) {
 }  // namespace noexport
 
 // fn() -> R или dd::task<R> вызывается на `a`. Результат или исключение - на текущем акторе
-// fn копируется/перемещается на текущем акторе, вызывается и разрушается на `a`
 template <typename F>
 dd::task<await_invoke_result_t<F>> invoke_on(actor& a, F fn) {
   actor& from = local_actor_ref();
