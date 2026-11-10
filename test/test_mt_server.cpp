@@ -31,7 +31,7 @@ static dd::task<std::map<char, int>> ask(hidi::internet_address addr, int connec
 APP_TEST("mt_server: connections distributed over actors", .actors_count = 3) {
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
-  hidi::internet_address addr = server.listen0(localhost());
+  hidi::internet_address addr = server.listen_home(localhost());
   std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 6); });
   co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'0', 2}, {'1', 2}, {'2', 2}}));
@@ -41,7 +41,7 @@ APP_TEST("mt_server: only chosen actors", .actors_count = 3) {
   size_t n = 0;
   btye::mt_server<id_server> server([&n] noexcept { return 1 + n++ % 2; });
   co_await server.start(nullptr);
-  hidi::internet_address addr = server.listen0(localhost());
+  hidi::internet_address addr = server.listen_home(localhost());
   std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 4); });
   co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'1', 2}, {'2', 2}}));
@@ -70,7 +70,7 @@ APP_TEST("mt_server: listen from another actor, error returns to the caller", .a
 APP_TEST("mt_server: stopped in the servers phase of the stop", .actors_count = 3) {
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
-  hidi::internet_address addr = server.listen0(localhost());
+  hidi::internet_address addr = server.listen_home(localhost());
   std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 3); });
   btye::request_stop();
   co_await btye::wait_stopped();
@@ -82,7 +82,7 @@ APP_TEST("mt_server: stopped in the servers phase of the stop", .actors_count = 
 APP_TEST("mt_server: concurrent shutdowns - one stop, others wait for its end", .actors_count = 3) {
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
-  (void)server.listen0(localhost());
+  (void)server.listen_home(localhost());
   std::atomic_size_t returned = 0;
   // каждый вернулся на свой актор, когда серверы уже остановлены
   co_await btye::invoke_on_all([&]() -> dd::task<void> {
@@ -101,7 +101,7 @@ APP_TEST("mt_server: destroyed while running is terminated in the background", .
   {
     btye::mt_server<id_server> server;
     co_await server.start(nullptr);
-    hidi::internet_address addr = server.listen0(localhost());
+    hidi::internet_address addr = server.listen_home(localhost());
     std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 3); });
     REQUIRE(answers.size() == 3);
   }
@@ -127,7 +127,7 @@ struct tagged_server : hidi::h2server {
 APP_TEST("mt_server: extra arguments of the server constructor", .actors_count = 2) {
   btye::mt_server<tagged_server> server;
   co_await server.start(nullptr, {}, 'x');
-  hidi::internet_address addr = server.listen0(localhost());
+  hidi::internet_address addr = server.listen_home(localhost());
   std::map<char, int> answers = co_await btye::invoke_on(1, [&] { return ask(addr, 2); });
   co_await server.shutdown();
   REQUIRE((answers == std::map<char, int>{{'x', 2}}));

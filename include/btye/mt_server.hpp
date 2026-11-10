@@ -8,37 +8,30 @@
 #include <hidi/h2server.hpp>
 #include <kelcoro/road.hpp>
 
-#include "btye/app.hpp"
 #include "btye/invoke.hpp"
 #include "btye/io.hpp"
 #include "btye/per_actor.hpp"
 
 namespace btye {
 
-// аргумент per_actor::start: серверу на каждом акторе - local_io_ref() этого актора
 inline constexpr per_actor_param local_io_ref_param{[] { return local_io_ref(); }};
 
-// выбор актора для соединения по кругу среди всех
 inline aa::move_only_fn<size_t() noexcept> round_robin() {
-  return [n = size_t(0)]() mutable noexcept { return n++ % all_actors().size(); };
+  return [n = size_t(local_actor()->id())]() mutable noexcept { return n++ % all_actors().size(); };
 }
 
-// Многопоточный сервер: экземпляр S на каждом акторе. Слушает только актор 0, принятые им соединения
-// раздаются акторам, которых выбирает `choose` (по умолчанию все по кругу), и обрабатываются там.
-// S - наследник hidi::h2server, конструктор S(ssl, options, контекст актора, args...).
-// run/stop у S не вызывать: циклами управляет btye::run
-// Остановка - одна на сервер, кто бы её ни начал: остановка приложения = shutdown
-// деструктор = обрыв соединений Остальные ждут её конца
+// создаёт S на каждом акторе
+// listen делает один и раздаёт акторам соединения, крутятся сервера на своих акторах
 template <std::derived_from<hidi::h2server> S>
 struct mt_server {
  private:
   // живёт, пока жив mt_server или идёт его остановка
   struct impl {
     per_actor<S> servers;
-    // вызывается только на акторе 0, где идёт раздача
+    // вызывается только на home, где идёт раздача
     aa::move_only_fn<size_t() noexcept> choose;
     // актор start: servers запускаются и останавливаются только с него
-    size_t home = 0;
+    size_t home = size_t(-1);
     // закрыта, пока идёт остановка: остальные ждут её конца
     dd::road stopping;
 
@@ -60,6 +53,9 @@ struct mt_server {
     if (!m->servers.started())  // не запущен или уже остановлен
       co_return;
     m->stopping.close();
+    on_scope_exit {
+      m->stopping.open(get_actor(m->home));
+    };
     std::exception_ptr err;
     try {
       if (graceful)
@@ -71,12 +67,11 @@ struct mt_server {
     }
     // и при ошибке: серверы разрушаются, ждущие просыпаются
     co_await m->servers.stop();
-    m->stopping.open(get_actor(m->home));
     if (err)
       std::rethrow_exception(err);
   }
 
-  // вызывается на акторе 0 для каждого принятого соединения: привязывает соединение к контексту выбранного
+  // вызывается на home для каждого принятого соединения: привязывает соединение к контексту выбранного
   // актора и отдаёт серверу на нём. Если привязать не удалось, соединение закрывается
   static void distribute(std::shared_ptr<impl> m, hidi::any_connection_t con) {
     size_t id = m->choose();
@@ -86,8 +81,6 @@ struct mt_server {
     } catch (...) {
       return;
     }
-    // задача встаёт в очередь актора раньше задач остановки (они начинаются позже на акторе 0), поэтому
-    // сервер на нём ещё жив
     run_in_background([](std::shared_ptr<impl> m, size_t id, hidi::any_connection_t con) -> dd::task<void> {
       co_await jump_on_actor(id);
       m->servers.local().serve(std::move(con));
@@ -95,7 +88,7 @@ struct mt_server {
   }
 
  public:
-  // `choose` возвращает номер актора для очередного соединения, вызывается на акторе 0
+  // `choose` вызывается всегда на home акторе
   explicit mt_server(aa::move_only_fn<size_t() noexcept> choose = round_robin())
       : m(std::make_shared<impl>(std::move(choose))) {
     assert(m->choose);
@@ -114,35 +107,36 @@ struct mt_server {
       run_in_background(stop(std::move(m), /*graceful=*/false, hidi::deadline_t::never()));
   }
 
-  // S(ssl, options, local_io_ref(), args...) на всех акторах, см. per_actor::start. `args` передаются по
-  // ссылке и должны жить до завершения start (при co_await server.start(...) это так)
-  // start и разрушение mt_server - на одном акторе, start - до остановки приложения и один раз
+  // вызывает конструктор каждого с (ssl, options, local_io_ref(), args...)
+  // назначает home актор для сервера (там делается listen_home / accept)
+  // больше одного успешного .start звать нельзя
   template <typename... Args>
-  dd::task<void> start(hidi::server_ssl_context_ptr ssl = nullptr, hidi::h2server_options options = {},
-                       Args&&... args) {
-    m->home = local_actor_ref().id();
+  dd::task<void> start(hidi::server_ssl_context_ptr ssl = nullptr,
+                       hidi::h2server_options options = hidi::h2server_options::hardened(), Args&&... args) {
+    assert(m->home == size_t(-1) && "start already called");
     co_await m->servers.start(std::move(ssl), std::move(options), local_io_ref_param,
                               std::forward<Args>(args)...);
+    m->home = local_actor_ref().id();
+    m->servers.local().set_accept_callback([w = std::weak_ptr(m)](hidi::any_connection_t con) {
+      if (std::shared_ptr<impl> p = w.lock())
+        distribute(std::move(p), std::move(con));
+    });
     on_stop = local_actor_ref().on_stop(
         stop_phases_e::servers, [m = m] { return stop(m, /*graceful=*/true, hidi::deadline_t::never()); });
   }
 
-  // Слушает `e` на акторе 0, возвращает адрес, на котором слушает (нужен при порте 0). Только на акторе 0,
-  // после start. Можно вызывать несколько раз с разными адресами
-  hidi::internet_address listen0(hidi::server_endpoint e) {
-    assert(local_actor_ref().id() == 0 && "listen0 must be called on the actor 0");
-    S& s = m->servers.local();
-    // weak: сервер, а с ним и колбек, живёт внутри impl
-    s.set_accept_callback([w = std::weak_ptr(m)](hidi::any_connection_t con) {
-      if (std::shared_ptr<impl> p = w.lock())
-        distribute(std::move(p), std::move(con));
-    });
-    return s.listen(std::move(e));
+  // можно вызывать только на home после start
+  // возвращает выданный адрес
+  hidi::internet_address listen_home(hidi::server_endpoint e) {
+    assert(m->home != size_t(-1) && "start not called");
+    assert(local_actor_ref().id() == m->home && "listen_home must be called from home actor");
+
+    return m->servers.local().listen(std::move(e));
   }
 
-  // listen0 с любого актора: выполняется на акторе 0, адрес или исключение возвращаются на текущий актор
+  // listen_home, но с любого актора
   dd::task<hidi::internet_address> listen(hidi::server_endpoint e) {
-    co_return co_await invoke_on(0, [&] { return listen0(e); });
+    co_return co_await invoke_on(m->home, [&] { return listen_home(e); });
   }
 
   // мягкая остановка серверов на всех акторах (h2server::shutdown), затем их разрушение. С любого актора,
@@ -156,6 +150,11 @@ struct mt_server {
   // экземпляр S текущего актора
   S& local() noexcept {
     return m->servers.local();
+  }
+
+  // назначается при первом вызове listen_home, до этого size_t(-1)
+  size_t home() const noexcept {
+    return m->home;
   }
 };
 
