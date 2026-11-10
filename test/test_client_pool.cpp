@@ -32,7 +32,7 @@ static bool throws(auto f) {
 APP_TEST("local_client_pool: a client per address and params, stop", .actors_count = 2) {
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
-  hidi::internet_address addr = server.listen0(localhost());
+  hidi::internet_address addr = server.listen_home(localhost());
 
   btye::local_client_pool pool;
   btye::raw_client a = pool.get_client_to(addr);
@@ -59,7 +59,7 @@ APP_TEST("local_client_pool: a client per address and params, stop", .actors_cou
 APP_TEST("local_client_pool: idle clients are collected, used are kept", .actors_count = 1) {
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
-  hidi::internet_address addr = server.listen0(localhost());
+  hidi::internet_address addr = server.listen_home(localhost());
 
   btye::local_client_pool pool({.idle_timeout = 20ms});
   btye::raw_client kept = pool.get_client_to(addr);
@@ -78,7 +78,7 @@ APP_TEST("local_client_pool: idle clients are collected, used are kept", .actors
 APP_TEST("client_to: on every actor, stopped in the clients phase", .actors_count = 3) {
   btye::mt_server<id_server> server;
   co_await server.start(nullptr);
-  hidi::internet_address addr = server.listen0(localhost());
+  hidi::internet_address addr = server.listen_home(localhost());
   std::atomic_size_t ok = 0;
   co_await btye::invoke_on_all([&]() -> dd::task<void> {
     btye::raw_client c = btye::client_to(addr);
