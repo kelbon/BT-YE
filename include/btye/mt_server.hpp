@@ -68,7 +68,7 @@ struct mt_server {
     // и при ошибке: серверы разрушаются, ждущие просыпаются
     co_await m->servers.stop();
     if (err)
-      std::rethrow_exception(err);
+      BTYE_RETURN_EXCEPTION(std::move(err));
   }
 
   // вызывается на home для каждого принятого соединения: привязывает соединение к контексту выбранного

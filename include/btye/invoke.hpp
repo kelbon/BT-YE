@@ -61,11 +61,28 @@ dd::task<await_invoke_result_t<F>> invoke_on(size_t id, F fn) {
 
 namespace noexport {
 
+// назначает исключение для dd::task<void>, после этого сразу должен быть co_return
+struct set_exception_awaiter {
+  std::exception_ptr&& e;
+
+  bool await_ready() const noexcept {
+    assert(e);
+    return false;
+  }
+  bool await_suspend(dd::task<void>::handle_type h) noexcept {
+    h.promise().set_exception(std::move(e));
+    return false;
+  }
+  static void await_resume() noexcept {
+  }
+};
+#define BTYE_RETURN_EXCEPTION(e) co_return co_await ::btye::noexport::set_exception_awaiter(e)
+
 // ждёт все задачи, затем пробрасывает исключение первой по порядку
 inline dd::task<void> wait_all(std::vector<dd::task<void>> tasks) {
   for (auto& r : co_await dd::when_all(std::move(tasks)))
     if (!r)
-      std::rethrow_exception(r.error());
+      BTYE_RETURN_EXCEPTION(std::move(r.error()));
 }
 
 }  // namespace noexport

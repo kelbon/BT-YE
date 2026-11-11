@@ -107,7 +107,7 @@ struct per_actor {
     auto& promise = t.raw_handle().promise();
     if (promise.has_exception()) {
       co_await stop();
-      std::rethrow_exception(promise.take_exception());
+      BTYE_RETURN_EXCEPTION(promise.take_exception());
     }
   }
 
