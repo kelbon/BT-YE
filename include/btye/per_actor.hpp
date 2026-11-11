@@ -5,7 +5,7 @@
 #include <memory>
 #include <type_traits>
 
-#include <kelcoro/noexport/fixed_array.hpp>
+#include <metel/fixed_array.hpp>
 #include <kelcoro/task.hpp>
 
 #include "btye/invoke.hpp"
@@ -74,7 +74,7 @@ template <typename T>
 struct per_actor {
  private:
   // каждый экземпляр в своей памяти, выделенной на его акторе
-  dd::noexport::fixed_array<std::unique_ptr<T>> instances;
+  metel::fixed_array<std::unique_ptr<T>> instances;
 
   T* local_ptr() noexcept {
     return instances.size() ? instances[local_actor_ref().id()].get() : nullptr;
@@ -95,7 +95,7 @@ struct per_actor {
   template <typename... Args>
   dd::task<void> start(Args... args) {
     assert(instances.size() == 0 && "per_actor is already started");
-    instances = dd::noexport::fixed_array<std::unique_ptr<T>>(all_actors().size());
+    instances = metel::fixed_array<std::unique_ptr<T>>(all_actors().size());
     dd::task<void> t = btye::invoke_on_all([&]() -> dd::task<void> {
       auto& t = instances[local_actor()->id()];
       t = std::make_unique<T>(noexport::unwrap_arg(args)...);
@@ -107,7 +107,7 @@ struct per_actor {
     auto& promise = t.raw_handle().promise();
     if (promise.has_exception()) {
       co_await stop();
-      std::rethrow_exception(promise.take_exception());
+      BTYE_RETURN_EXCEPTION(promise.take_exception());
     }
   }
 

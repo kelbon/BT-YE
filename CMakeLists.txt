@@ -34,6 +34,7 @@ target_link_libraries(btyelib PUBLIC
     svarg_cxx_supportlib
     Boost::stacktrace
     zallib
+    metellib
 )
 
 set_target_properties(btyelib PROPERTIES

@@ -133,10 +133,10 @@ void run_in_background(dd::task<void> task);
 namespace noexport {
 
 template <bool HereReady>
-struct jump_on_actor : dd::task_node {
+struct jump_on_actor_t : dd::task_node {
   actor& a;
 
-  explicit jump_on_actor(actor& a) noexcept : a(a) {
+  explicit jump_on_actor_t(actor& a) noexcept : a(a) {
   }
 
   bool await_ready() const noexcept {
@@ -158,18 +158,18 @@ struct jump_on_actor : dd::task_node {
 // noop если уже на этом акторе
 // С любого потока
 // jump_on нельзя делать корутине, которую никто не ждёт
-[[nodiscard]] inline noexport::jump_on_actor<true> jump_on(actor& a) noexcept {
-  return noexport::jump_on_actor<true>(a);
+[[nodiscard]] inline noexport::jump_on_actor_t<true> jump_on(actor& a) noexcept {
+  return noexport::jump_on_actor_t<true>(a);
 }
 
-[[nodiscard]] inline noexport::jump_on_actor<true> jump_on_actor(size_t id) noexcept {
+[[nodiscard]] inline noexport::jump_on_actor_t<true> jump_on_actor(size_t id) noexcept {
   return jump_on(get_actor(id));
 }
 
 // встать в конец очереди текущего актора
 // можно вызывать только на акторе
-[[nodiscard]] inline noexport::jump_on_actor<false> yield() noexcept {
-  return noexport::jump_on_actor<false>(local_actor_ref());
+[[nodiscard]] inline noexport::jump_on_actor_t<false> yield() noexcept {
+  return noexport::jump_on_actor_t<false>(local_actor_ref());
 }
 
 #ifndef NDEBUG

@@ -7,6 +7,7 @@
 
 #include <moko3/moko3.hpp>
 
+#include <atomic>
 #include <exception>
 
 namespace btye::test {
@@ -14,6 +15,45 @@ namespace btye::test {
 inline app_options actors(size_t n) {
   return app_options{.actors_count = n};
 }
+
+// живёт на одном акторе: создаётся, присваивается и разрушается на нём. Копия и перемещение - новый объект на
+// текущем акторе, перемещённый (пустой) можно разрушить где угодно. Нарушения считает violations(), тест
+// проверяет что их 0 (в отличие от dbg_actor_ref работает и в Release)
+struct actor_bound {
+  actor* home = local_actor();
+  bool moved = false;
+
+  actor_bound() = default;
+  actor_bound(const actor_bound&) noexcept {
+  }
+  actor_bound(actor_bound&& o) noexcept {
+    o.moved = true;
+  }
+  actor_bound& operator=(const actor_bound&) noexcept {
+    check();
+    moved = false;
+    return *this;
+  }
+  actor_bound& operator=(actor_bound&& o) noexcept {
+    check();
+    moved = false;
+    o.moved = true;
+    return *this;
+  }
+  ~actor_bound() {
+    if (!moved)
+      check();
+  }
+
+  void check() const noexcept {
+    if (home != local_actor())
+      ++violations();
+  }
+  static std::atomic_int& violations() noexcept {
+    static std::atomic_int v = 0;
+    return v;
+  }
+};
 
 // отвечает номером актора, на котором обработан запрос
 struct id_server : hidi::h2server {

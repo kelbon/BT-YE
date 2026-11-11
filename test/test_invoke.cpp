@@ -2,12 +2,17 @@
 
 #include "btye/invoke.hpp"
 
+#include <array>
 #include <atomic>
+#include <functional>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 using btye::local_actor;
+using btye::test::actor_bound;
+using btye::test::actors;
 
 static dd::task<size_t> where() {
   co_return local_actor()->id();
@@ -93,6 +98,102 @@ APP_TEST("invoke_on_others and exceptions of invoke_on_all", .actors_count = 3) 
   }
   REQUIRE(local_actor()->id() == 1 && error == "1");
   REQUIRE((visited == std::vector<int>{11, 10, 11}));
+}
+
+// значение, которое нельзя разрушать на чужом акторе
+struct traced {
+  actor_bound bound;
+  std::string s;
+};
+
+// конкатенация ассоциативна, но не коммутативна: результат зависит от порядка свёртки
+TEST("map_reduce_on_all: same as std::accumulate, values and copies of map/reduce live on their actors") {
+  for (size_t n = 1; n <= 9; ++n) {
+    std::string expected, got;
+    size_t caller = size_t(-1);
+    std::vector<std::atomic_size_t> reduces_on(n);
+    int violations_before = actor_bound::violations();
+    int code = btye::run(actors(n), [&]() -> dd::task<int> {
+      // вызов не с актора 0: результат должен вернуться сюда
+      co_await btye::jump_on_actor(n - 1);
+      auto map = [b = actor_bound{}] { return traced{{}, std::to_string(local_actor()->id())}; };
+      auto concat = [&reduces_on, b = actor_bound{}](traced a, traced c) {
+        ++reduces_on[local_actor()->id()];
+        return traced{{}, a.s + c.s};
+      };
+      std::vector<size_t> ids(n);
+      std::iota(ids.begin(), ids.end(), 0);
+      expected = std::accumulate(ids.begin(), ids.end(), std::string(),
+                                 [](std::string s, size_t id) { return s + std::to_string(id); });
+      traced r = co_await btye::map_reduce_on_all(map, concat);
+      got = r.s;
+      caller = local_actor()->id();
+      co_return 0;
+    });
+    REQUIRE(code == 0);
+    REQUIRE(caller == n - 1);
+    REQUIRE(got == expected);
+    REQUIRE(actor_bound::violations() == violations_before);
+    size_t reduces = 0;
+    for (auto& r : reduces_on)
+      reduces += r;
+    REQUIRE(reduces == n - 1);
+    if (n == 8) {
+      // 1->0, 3->2, 5->4, 7->6, затем 2->0, 6->4, затем 4->0
+      std::vector<size_t> counts(reduces_on.begin(), reduces_on.end());
+      REQUIRE((counts == std::vector<size_t>{3, 0, 1, 0, 2, 0, 1, 0}));
+    }
+  }
+}
+
+APP_TEST("map_reduce_on_all: map and reduce returning dd::task", .actors_count = 5) {
+  co_await btye::jump_on_actor(2);
+  size_t sum = co_await btye::map_reduce_on_all(
+      []() -> dd::task<size_t> {
+        co_await btye::yield();
+        co_return local_actor()->id();
+      },
+      [](size_t a, size_t b) -> dd::task<size_t> {
+        co_await btye::yield();
+        co_return a + b;
+      });
+  REQUIRE(sum == 0 + 1 + 2 + 3 + 4);
+  REQUIRE(local_actor()->id() == 2);
+}
+
+APP_TEST("map_reduce_on_all: exceptions after all actors are done", .actors_count = 4) {
+  std::vector<int> visited(4, 0);
+  auto throw_on_odd = [&]() -> size_t {
+    size_t id = local_actor()->id();
+    ++visited[id];
+    if (id % 2)
+      throw std::runtime_error(std::to_string(id));
+    return id;
+  };
+  // исключения с 1 и 3: пробрасывается с меньшего номера
+  std::string error;
+  try {
+    (void)co_await btye::map_reduce_on_all(throw_on_odd, std::plus<>{});
+  } catch (std::runtime_error& e) {
+    error = e.what();
+  }
+  REQUIRE(error == "1");
+  REQUIRE((visited == std::vector<int>{1, 1, 1, 1}));
+
+  // исключение из reduce на акторе 2 (сворачивает 2 и 3)
+  error.clear();
+  try {
+    (void)co_await btye::map_reduce_on_all([] { return local_actor()->id(); },
+                                           [](size_t a, size_t b) -> size_t {
+                                             if (local_actor()->id() == 2)
+                                               throw std::runtime_error("reduce");
+                                             return a + b;
+                                           });
+  } catch (std::runtime_error& e) {
+    error = e.what();
+  }
+  REQUIRE(error == "reduce");
+  REQUIRE(local_actor()->id() == 0);
 }
 
 REGISTER_TEST_LISTENER(moko3::gtest_listener);
