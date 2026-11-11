@@ -31,8 +31,6 @@ using await_invoke_result_t = typename decltype([] {
 namespace noexport {
 
 // вызов внутри корутины: исключение из синхронной части fn тоже попадает в задачу
-// TODO либо таску, либо не корутину тупо вызывать и авейтер возвращает результат (мб это avalue из келкоро)
-// TODO возвращать awaitable напрямую, если он awaitable
 template <typename F, typename... Args>
 dd::task<await_invoke_result_t<F, Args&&...>> call(F& fn, Args&&... args) {
   if constexpr (dd::co_awaitable<std::invoke_result_t<F&, Args&&...>>)
