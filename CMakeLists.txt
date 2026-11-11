@@ -22,6 +22,7 @@ add_library(btyelib STATIC
     src/btye/actor.cpp
     src/btye/offload_pool.cpp
     src/btye/utils/thread_tune.cpp
+    src/btye/utils/log_exception.cpp
 )
 
 target_include_directories(btyelib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")

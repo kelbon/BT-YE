@@ -2,6 +2,7 @@
 #include "btye/invoke.hpp"
 #include "btye/io.hpp"
 #include "btye/utils/thread_tune.hpp"
+#include "btye/utils/log_exception.hpp"
 
 #include "crash.hpp"
 #include "interrupt.hpp"
@@ -30,8 +31,6 @@ namespace noexport {
 
 struct app_state {
   std::span<actor> actors;
-  // + 1 от main, + 1 пока не прошёл stop_actors
-  std::atomic_size_t background = 2;
   // только на акторе 0
   aa::move_only_fn<void() noexcept> stop_interrupt;
   // только на акторе 0
@@ -63,36 +62,14 @@ struct app_state {
   static void run_loop(actor& a) noexcept {
     a.ctx.run();
   }
-
-  static void log_exception(std::string_view where, std::exception_ptr e) noexcept {
-    try {
-      std::rethrow_exception(std::move(e));
-    } catch (const std::exception& e) {
-      std::println(stderr, "btye: exception from {}: {}", where, e.what());
-    } catch (...) {
-      std::println(stderr, "btye: unknown exception from {}", where);
-    }
-  }
-
+  // запускается отдельно, когда никто уже не может продцировать задачи
+  // и акторы больше не могут использовать друг друга
+  // не содежит стейта который требовал бы удаления на конкретных акторах
   static dd::job release_actors(app_state& s) {
     for (actor& a : s.actors) {
       co_await jump_on(a);
       a.ctx.end_task();
     }
-  }
-
-  void background_done() {
-    if (background.fetch_sub(1, std::memory_order_acq_rel) == 1)
-      release_actors(*this);
-  }
-
-  static dd::job run_background(app_state& s, dd::task<void> t) {
-    try {
-      co_await std::move(t);
-    } catch (...) {
-      log_exception("background task", std::current_exception());
-    }
-    s.background_done();
   }
 
   // обработчики фазы `p` текущего актора параллельно, ждёт все
@@ -141,7 +118,12 @@ struct app_state {
       co_await a.offload_gate.close();
     });
     s.stopped.open(s.actors[0]);
-    s.background_done();
+    co_await invoke_on_all([]() -> dd::task<void> {
+      actor& a = local_actor_ref();
+      co_await a.background_gate.close();
+    });
+    // разрешаем циклам .run самим завершится
+    (void)release_actors(s);
   }
 
   static void request_stop(actor& a) {
@@ -151,6 +133,7 @@ struct app_state {
 
   static dd::job start_main(app_state& s, aa::move_only_fn<dd::task<int>()>& main) {
     actor& a0 = s.actors[0];
+    auto guard = a0.background_gate.hold();
     co_await yield();
     int code;
     try {
@@ -163,7 +146,6 @@ struct app_state {
     // `main` - фоновая задача, циклы живы: вернуться на актор можно всегда
     co_await jump_on(a0);
     request_stop(a0);
-    s.background_done();
   }
 };
 
@@ -188,14 +170,6 @@ std::span<actor> all_actors() noexcept {
     return current_actor->app->actors;
   noexport::app_state* s = foreign_app.load(std::memory_order_acquire);
   return s ? s->actors : std::span<actor>{};
-}
-
-void run_in_background(dd::task<void> t) {
-  noexport::app_state& s = *local_actor_ref().app;
-  size_t was = s.background.fetch_add(1, std::memory_order_acq_rel);
-  assert(was != 0 && "run_in_background after the loops are released");
-  (void)was;
-  noexport::app_state::run_background(s, std::move(t));
 }
 
 void request_stop() noexcept {

@@ -58,10 +58,11 @@ struct actor {
   bool is_stopped = false;
   // все offload задачи уходящие с этого актора должны закончится
   dd::gate offload_gate;
+  // все background задачи (и главная на главном акторе)
+  dd::gate background_gate;
 
   friend struct noexport::app_state;
   friend std::span<actor> all_actors() noexcept;
-  friend void run_in_background(dd::task<void>);
   friend raw_client client_to(hidi::endpoint, client_params);
   friend struct offload_pool;
 
@@ -73,6 +74,8 @@ struct actor {
   [[nodiscard]] size_t id() const noexcept {
     return idx;
   }
+
+  void run_background(dd::task<void>);
 
   // Остановка дошла до этого актора (см. btye::request_stop)
   // можно вызывать только с актора
