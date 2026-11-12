@@ -7,11 +7,13 @@
 namespace btye {
 
 dd::job do_background_task(dd::gate::holder h, dd::task<void> t) {
+  actor& home = local_actor_ref();
   try {
     co_await std::move(t);
   } catch (...) {
     log_exception("background task", std::current_exception());
   }
+  co_await jump_on(home);
 }
 
 void actor::run_background(dd::task<void> t) {
