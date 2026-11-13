@@ -12,3 +12,4 @@ compile_commands.json
 build/
 build_release/
 build_reldbg/
+.clangd
