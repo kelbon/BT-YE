@@ -12,14 +12,14 @@ include(${CCOZY_SOURCE_DIR}/ccozy_tools.cmake)
 CPMAddPackage(
   NAME SVARG
   GITHUB_REPOSITORY kelbon/svarg
-  GIT_TAG 6a8e542820e0182a85c71b774f4a1e3899b807c5
+  GIT_TAG 2e5937376779c7f673399e65560a4047233633a2
 )
 
 if (btye_ENABLE_TESTING)
   CPMAddPackage(
     NAME MOKO3
     GITHUB_REPOSITORY kelbon/moko3
-    GIT_TAG v0.10.4
+    GIT_TAG v0.11.0
   )
 endif()
 
