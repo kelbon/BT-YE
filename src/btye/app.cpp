@@ -1,6 +1,7 @@
 #include "btye/app.hpp"
 #include "btye/invoke.hpp"
 #include "btye/io.hpp"
+#include "btye/trace.hpp"
 #include "btye/utils/thread_tune.hpp"
 #include "btye/utils/log_exception.hpp"
 
@@ -13,11 +14,13 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdio>
 #include <format>
 #include <latch>
 #include <memory>
 #include <mutex>
 #include <print>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -59,6 +62,15 @@ struct app_state {
     // цикл на случай если само разрушение складывает что-то в locals
     while (!a.locals_map.empty())
       (void)std::exchange(a.locals_map, {});
+  }
+
+  // на потоке актора, когда циклы закончились: трассированные задачи, которые так и не закончились
+  static void report_unfinished_tasks(actor& a) noexcept {
+    if (a.trace_leaves.empty())
+      return;
+    std::string s = "btye: run ended with unfinished tasks\n" + local_actor_trace();
+    std::fputs(s.c_str(), stderr);
+    a.trace_leaves.clear();
   }
 
   // на потоке актора, когда циклы закончились (пул уже остановлен в фазе clients)
@@ -239,6 +251,7 @@ int run(app_options opts, aa::move_only_fn<task<int>()> main, actor_context_fact
       loops_done.arrive_and_wait();
       app_state::destroy_locals(a);
       app_state::destroy_clients(a);
+      app_state::report_unfinished_tasks(a);
       a.ioctx().reset();
       current_actor = nullptr;
     });
@@ -255,6 +268,7 @@ int run(app_options opts, aa::move_only_fn<task<int>()> main, actor_context_fact
   if (s.ofpool)  // задач там уже быть не должно, всех дождались offload_gate акторов
     s.ofpool.reset();
   app_state::destroy_clients(a0);
+  app_state::report_unfinished_tasks(a0);
   a0.ioctx().reset();
   current_actor = nullptr;
   for (std::thread& t : threads)

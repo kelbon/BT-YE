@@ -2,11 +2,14 @@
 # every file in /test/ dir matching test_*.cpp added as test
 
 svarg_generate_cxx(
-    TARGET    btye_test_specs
-    SPECS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/specs
-    OUT_DIR   ${CMAKE_CURRENT_BINARY_DIR}/generated
-    SPECS     actors_api.yaml
+    TARGET       btye_test_specs
+    SPECS_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/specs
+    OUT_DIR      ${CMAKE_CURRENT_BINARY_DIR}/generated
+    SPECS        actors_api.yaml
+    TASK_CONTEXT btye::task_context
+    FILE_PREFIX  "#include <btye/task.hpp>"
 )
+target_link_libraries(btye_test_specs PUBLIC btyelib)
 
 file(GLOB btye_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp")
 

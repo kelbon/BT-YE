@@ -85,7 +85,7 @@ task<void> wait_stopped();
 // можно вызывать пока работает `run`
 // запускает задачу 'f' на пуле для блокирующих задач (если он есть, иначе исключение)
 template <typename F>
-task<std::invoke_result_t<F&>> offload(F f) {
+dd::task<std::invoke_result_t<F&>> offload(F f) {
   return local_actor_ref().offpool().offload(std::move(f));
 }
 
