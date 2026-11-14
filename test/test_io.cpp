@@ -20,11 +20,11 @@ using btye::test::actors;
 TEST("h2server and h2client on actor contexts") {
   std::string answer;
   size_t server_actor = 99;
-  int code = btye::run(actors(2), [&]() -> dd::task<int> {
+  int code = btye::run(actors(2), [&]() -> btye::task<int> {
     id_server server(nullptr, {}, btye::local_io_ref());
     hidi::internet_address addr =
         server.listen({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
-    answer = co_await btye::invoke_on(1, [addr]() -> dd::task<std::string> {
+    answer = co_await btye::invoke_on(1, [addr]() -> btye::task<std::string> {
       hidi::h2client client(addr, nullptr, {}, btye::local_io_ref());
       hidi::http_response rsp = co_await client.send_request(
           hidi::http_request{.path = "/", .method = hidi::http_method_e::GET}, hidi::deadline_after(5s));
@@ -41,8 +41,8 @@ TEST("h2server and h2client on actor contexts") {
 
 TEST("create_timer: the timer of the current actor") {
   size_t woke_on = 99;
-  int code = btye::run(actors(2), [&]() -> dd::task<int> {
-    woke_on = co_await btye::invoke_on(1, []() -> dd::task<size_t> {
+  int code = btye::run(actors(2), [&]() -> btye::task<int> {
+    woke_on = co_await btye::invoke_on(1, []() -> btye::task<size_t> {
       hidi::any_timer t = btye::create_timer();
       hidi::io_error_code ec;
       auto start = std::chrono::steady_clock::now();
@@ -58,7 +58,7 @@ TEST("create_timer: the timer of the current actor") {
 TEST("local_io_ref: asio directly, other contexts and asio with starter through forwarding") {
   // по умолчанию asio_io: ссылка на тот же asio::io_context
   bool direct = false;
-  btye::run(actors(2), [&]() -> dd::task<int> {
+  btye::run(actors(2), [&]() -> btye::task<int> {
     hidi::any_io_context ref = btye::local_io_ref();
     hidi::asio_ref_io* r = aa::any_cast<hidi::asio_ref_io>(&ref);
     hidi::asio_io* own = aa::any_cast<hidi::asio_io>(&local_actor()->ioctx());
@@ -80,13 +80,13 @@ TEST("local_io_ref: asio directly, other contexts and asio with starter through 
   };
   int code = btye::run(
       actors(2),
-      [&]() -> dd::task<int> {
+      [&]() -> btye::task<int> {
         hidi::any_io_context ref = btye::local_io_ref();
         forwarded = !aa::any_cast<hidi::asio_ref_io>(&ref);
         id_server server(nullptr, {}, std::move(ref));
         hidi::internet_address addr =
             server.listen({.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)});
-        answer = co_await btye::invoke_on(1, [addr]() -> dd::task<std::string> {
+        answer = co_await btye::invoke_on(1, [addr]() -> btye::task<std::string> {
           hidi::h2client client(addr, nullptr, {}, btye::local_io_ref());
           hidi::http_response rsp =
               co_await client.send_request(hidi::http_request{.path = "/"}, hidi::deadline_after(5s));

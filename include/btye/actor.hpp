@@ -12,12 +12,12 @@
 
 #include <anyany/anyany.hpp>
 #include <kelcoro/executor_interface.hpp>
-#include <kelcoro/task.hpp>
 #include <hidi/utils/any_io_context.hpp>
 
 #include "btye/client_pool.hpp"
 #include "btye/abort_source.hpp"
 #include "btye/subscription.hpp"
+#include "btye/task.hpp"
 
 namespace btye {
 
@@ -48,7 +48,7 @@ enum struct stop_phases_e : size_t {
 };
 
 // Подписка на фазу остановки, см. actor::on_stop. Отписывается при разрушении
-using stop_subscription = noexport::subscription<aa::move_only_fn<dd::task<void>()>>;
+using stop_subscription = noexport::subscription<aa::move_only_fn<task<void>()>>;
 
 struct actor;
 struct offload_pool;
@@ -90,7 +90,7 @@ struct actor {
     return idx;
   }
 
-  void run_background(dd::task<void>);
+  void run_background(task<void>);
 
   // Остановка дошла до этого актора (см. btye::request_stop)
   // можно вызывать только с актора
@@ -101,7 +101,7 @@ struct actor {
   // `handler` вызывается на этом акторе в фазе `p`, если подписка жива, его задачу дожидаются. Исключение -
   // лог. Только на этом акторе, до остановки.
   // Задача обработчика может пережить подписку и её владельца: всё, что ей нужно, она держит сама
-  [[nodiscard]] stop_subscription on_stop(stop_phases_e p, aa::move_only_fn<dd::task<void>()> handler);
+  [[nodiscard]] stop_subscription on_stop(stop_phases_e p, aa::move_only_fn<task<void>()> handler);
 
   // отменяется в начале остановки, на всех акторах до фаз: после stopped() == true. Только на этом акторе
   [[nodiscard]] abort_source& stop_source() noexcept {
@@ -164,7 +164,7 @@ struct actor {
 // Запускает задачу на текущем акторе (только на акторе) как фоновую
 // Исключение из `task` игнорируется (лог)
 // Нельзя вызывать из корутины, которую никто не ждёт
-void run_in_background(dd::task<void> task);
+void run_in_background(task<void> t);
 
 namespace noexport {
 

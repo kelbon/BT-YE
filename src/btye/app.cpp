@@ -80,8 +80,8 @@ struct app_state {
   }
 
   // обработчики фазы `p` текущего актора параллельно, ждёт все
-  static dd::task<void> run_phase(stop_phases_e p) {
-    std::vector<dd::task<void>> tasks;
+  static task<void> run_phase(stop_phases_e p) {
+    std::vector<task<void>> tasks;
     for (stop_subscription& sub : local_actor_ref().stop_handlers[size_t(p)]) {
       try {
         tasks.push_back(sub.fn());
@@ -95,7 +95,7 @@ struct app_state {
         log_exception("stop handler", r.error());
   }
 
-  static dd::task<void> wait_stopped(actor& from) {
+  static task<void> wait_stopped(actor& from) {
     app_state& s = *from.app;
     co_await jump_on(s.actors[0]);
     // после остановки открыта навсегда
@@ -110,7 +110,7 @@ struct app_state {
     // дальше сигналы обрабатывает система: повторный Ctrl+C во время остановки завершает процесс
     if (s.stop_interrupt)
       s.stop_interrupt();
-    co_await invoke_on_all([]() -> dd::task<void> {
+    co_await invoke_on_all([]() -> task<void> {
       actor& a = local_actor_ref();
       a.is_stopped = true;
       a.stop_src.request_abort();
@@ -120,12 +120,12 @@ struct app_state {
     for (size_t p = 0; p < size_t(stop_phases_e::COUNT); ++p)
       co_await invoke_on_all([p] { return run_phase(stop_phases_e(p)); });
 
-    co_await invoke_on_all([]() -> dd::task<void> {
+    co_await invoke_on_all([]() -> task<void> {
       actor& a = local_actor_ref();
       co_await a.offload_gate.close();
     });
     s.stopped.open(s.actors[0]);
-    co_await invoke_on_all([]() -> dd::task<void> {
+    co_await invoke_on_all([]() -> task<void> {
       actor& a = local_actor_ref();
       co_await a.background_gate.close();
     });
@@ -138,7 +138,7 @@ struct app_state {
       stop_actors(*a.app);
   }
 
-  static dd::job start_main(app_state& s, aa::move_only_fn<dd::task<int>()>& main) {
+  static dd::job start_main(app_state& s, aa::move_only_fn<task<int>()>& main) {
     actor& a0 = s.actors[0];
     auto guard = a0.background_gate.hold();
     co_await yield();
@@ -183,11 +183,11 @@ void request_stop() noexcept {
   noexport::app_state::request_stop(local_actor_ref());
 }
 
-dd::task<void> wait_stopped() {
+task<void> wait_stopped() {
   return noexport::app_state::wait_stopped(local_actor_ref());
 }
 
-int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_factory_t factory) {
+int run(app_options opts, aa::move_only_fn<task<int>()> main, actor_context_factory_t factory) {
   using noexport::app_state;
   aa::move_only_fn<void() noexcept> restore_crash_handlers;
   if (opts.handle_crash)

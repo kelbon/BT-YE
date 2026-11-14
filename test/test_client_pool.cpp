@@ -14,7 +14,7 @@ using namespace std::chrono_literals;
 using btye::test::id_server;
 using btye::test::localhost;
 
-static dd::task<int> status_of(btye::raw_client& c) {
+static btye::task<int> status_of(btye::raw_client& c) {
   hidi::http_response rsp = co_await svarg::cxx_support::send_buffered(c, hidi::http_request{.path = "/"},
                                                                        hidi::deadline_after(5s));
   co_return rsp.status;
@@ -80,7 +80,7 @@ APP_TEST("client_to: on every actor, stopped in the clients phase", .actors_coun
   co_await server.start(nullptr);
   hidi::internet_address addr = server.listen_home(localhost());
   std::atomic_size_t ok = 0;
-  co_await btye::invoke_on_all([&]() -> dd::task<void> {
+  co_await btye::invoke_on_all([&]() -> btye::task<void> {
     btye::raw_client c = btye::client_to(addr);
     if (co_await status_of(c) == 200)
       ++ok;

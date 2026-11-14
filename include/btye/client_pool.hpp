@@ -8,8 +8,9 @@
 #include <anyany/anyany.hpp>
 #include <hidi/h2client.hpp>
 #include <kelcoro/gate.hpp>
-#include <kelcoro/task.hpp>
 #include <svarg/backend/cxx/support/any_client.hpp>
+
+#include "btye/task.hpp"
 
 namespace btye {
 
@@ -74,7 +75,7 @@ struct local_client_pool {
 
   // запрещает выдачу новых клиентов и запросы в существующих
   // ждёт запросы которые уже идут. Повторный вызов noop
-  dd::task<void> stop();
+  task<void> stop();
 
   // сколько клиентов в пуле
   [[nodiscard]] size_t size() const noexcept {

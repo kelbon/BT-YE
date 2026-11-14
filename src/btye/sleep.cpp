@@ -7,7 +7,7 @@
 
 namespace btye {
 
-static dd::task<bool> do_sleep(hidi::duration_t d, abort_source* as) {
+static task<bool> do_sleep(hidi::duration_t d, abort_source* as) {
   actor& a = local_actor_ref();
   auto aborted = [&] { return a.stopped() || (as && as->aborted()); };
   if (aborted())
@@ -22,11 +22,11 @@ static dd::task<bool> do_sleep(hidi::duration_t d, abort_source* as) {
   co_return !aborted();
 }
 
-dd::task<bool> sleep(hidi::duration_t d) {
+task<bool> sleep(hidi::duration_t d) {
   return do_sleep(d, nullptr);
 }
 
-dd::task<bool> sleep(hidi::duration_t d, abort_source& as) {
+task<bool> sleep(hidi::duration_t d, abort_source& as) {
   return do_sleep(d, &as);
 }
 

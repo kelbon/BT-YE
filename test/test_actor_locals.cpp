@@ -16,7 +16,7 @@ static btye::actor_locals& locals() {
 TEST("actor locals: own map on each actor, empty at the start of every run") {
   for (int r = 0; r < 2; ++r) {
     std::atomic_bool empty_at_start = true;
-    int code = btye::run(actors(3), [&]() -> dd::task<int> {
+    int code = btye::run(actors(3), [&]() -> btye::task<int> {
       co_await btye::invoke_on_all([&] {
         if (!locals().empty())
           empty_at_start = false;
@@ -73,7 +73,7 @@ struct probe {
         destroyed(destroyed),
         late_destroyed(late),
         ok(ok) {
-    on_last = home->on_stop(btye::stop_phases_e::last, [&p = last_phases_done]() -> dd::task<void> {
+    on_last = home->on_stop(btye::stop_phases_e::last, [&p = last_phases_done]() -> btye::task<void> {
       co_await yield();
       ++p;
     });
@@ -97,12 +97,12 @@ TEST("actor locals: destroyed on own actor after stop phases and background task
   constexpr size_t n = 3;
   std::atomic_size_t last_phases_done = 0, background_done = 0, destroyed = 0, late_destroyed = 0;
   std::atomic_bool ok = true;
-  int code = btye::run(actors(n), [&]() -> dd::task<int> {
+  int code = btye::run(actors(n), [&]() -> btye::task<int> {
     co_await btye::invoke_on_all([&] {
       locals().try_emplace("probe", std::in_place_type<probe>, n, last_phases_done, background_done,
                            destroyed, late_destroyed, ok);
       // фоновая задача переживает main и фазы остановки
-      btye::run_in_background([](std::atomic_size_t& done) -> dd::task<void> {
+      btye::run_in_background([](std::atomic_size_t& done) -> btye::task<void> {
         while (!local_actor()->stopped())
           co_await yield();
         for (int i = 0; i < 10; ++i)

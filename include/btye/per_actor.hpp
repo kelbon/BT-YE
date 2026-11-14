@@ -93,10 +93,10 @@ struct per_actor {
   // std::ref(per_actor<U>) - как per_actor<U>& или U& текущего актора, per_actor_param - результат fn()
   // при исключении созданные экземпляры останавливаются (.stop), исключение пробрасывается
   template <typename... Args>
-  dd::task<void> start(Args... args) {
+  task<void> start(Args... args) {
     assert(instances.size() == 0 && "per_actor is already started");
     instances = metel::fixed_array<std::unique_ptr<T>>(all_actors().size());
-    dd::task<void> t = btye::invoke_on_all([&]() -> dd::task<void> {
+    task<void> t = btye::invoke_on_all([&]() -> task<void> {
       auto& t = instances[local_actor()->id()];
       t = std::make_unique<T>(noexport::unwrap_arg(args)...);
       if constexpr (std::is_base_of_v<per_actor_peer<T>, T>)
@@ -111,15 +111,15 @@ struct per_actor {
     }
   }
 
-  // вызывает adl перегрузку per_actor_shutdown(T&) -> dd::task<void>) если есть
+  // вызывает adl перегрузку per_actor_shutdown(T&) -> task<void>) если есть
   // исключение из per_actor_shutdown пробрасывается после разрушения
-  dd::task<void> stop() {
+  task<void> stop() {
     if (instances.size() == 0)
       co_return;
     static constexpr bool has_per_actor_shutdown = requires(T& x) { per_actor_shutdown(x); };
-    dd::task<void> stopall;
+    task<void> stopall;
     if constexpr (has_per_actor_shutdown) {
-      stopall = btye::invoke_on_all([&]() -> dd::task<void> {
+      stopall = btye::invoke_on_all([&]() -> task<void> {
         T* t = local_ptr();
         if (t)  // при исключении в start незаполнено
           co_await per_actor_shutdown(*t);
@@ -127,7 +127,7 @@ struct per_actor {
       co_await stopall.wait();
     }
     // в два прохода, так как инстансы могут держать ссылки друг на друга
-    co_await btye::invoke_on_all([&]() -> dd::task<void> {
+    co_await btye::invoke_on_all([&]() -> task<void> {
       instances[local_actor()->id()].reset();
       co_return;
     });
@@ -148,21 +148,21 @@ struct per_actor {
     return *t;
   }
 
-  // fn(T&) -> R или dd::task<R> с экземпляром актора `id`, результат на текущем акторе (см. btye::invoke_on)
+  // fn(T&) -> R или task<R> с экземпляром актора `id`, результат на текущем акторе (см. btye::invoke_on)
   template <typename F>
   auto invoke_on(size_t id, F fn) {
     return btye::invoke_on(id, [this, fn = std::move(fn)]() mutable { return fn(local()); });
   }
 
-  // fn(T&) -> void или dd::task<void> на всех акторах параллельно, у каждого своя копия fn
+  // fn(T&) -> void или task<void> на всех акторах параллельно, у каждого своя копия fn
   template <typename F>
-  dd::task<void> invoke_on_all(F fn) {
+  task<void> invoke_on_all(F fn) {
     return btye::invoke_on_all([this, fn = std::move(fn)]() mutable { return fn(local()); });
   }
 
   // то же, кроме текущего актора
   template <typename F>
-  dd::task<void> invoke_on_others(F fn) {
+  task<void> invoke_on_others(F fn) {
     return btye::invoke_on_others([this, fn = std::move(fn)]() mutable { return fn(local()); });
   }
 };

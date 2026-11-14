@@ -16,7 +16,7 @@ using btye::test::id_server;
 using btye::test::localhost;
 
 // по запросу на каждом новом соединении (свой h2client)
-static dd::task<std::map<char, int>> ask(hidi::internet_address addr, int connections) {
+static btye::task<std::map<char, int>> ask(hidi::internet_address addr, int connections) {
   std::map<char, int> answers;
   for (int i = 0; i < connections; ++i) {
     hidi::h2client client(addr, nullptr, {}, btye::local_io_ref());
@@ -85,7 +85,7 @@ APP_TEST("mt_server: concurrent shutdowns - one stop, others wait for its end", 
   (void)server.listen_home(localhost());
   std::atomic_size_t returned = 0;
   // каждый вернулся на свой актор, когда серверы уже остановлены
-  co_await btye::invoke_on_all([&]() -> dd::task<void> {
+  co_await btye::invoke_on_all([&]() -> btye::task<void> {
     size_t id = local_actor()->id();
     co_await server.shutdown();
     if (local_actor()->id() == id)

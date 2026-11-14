@@ -18,7 +18,7 @@ namespace h2 = btye::h2;
 struct whoami_server : actors_api::server {
   using actors_api::server::server;
 
-  dd::task<h2::http_response> handle(actors_api::whoami, h2::http_request, h2::request_context) override {
+  btye::task<h2::http_response> handle(actors_api::whoami, h2::http_request, h2::request_context) override {
     actors_api::whoami::response_200 rsp;
     rsp.body.actor = local_actor()->id();
     co_return h2::make_response(rsp);
@@ -26,7 +26,7 @@ struct whoami_server : actors_api::server {
 };
 
 // сгенерированный клиент поверх h2client на контексте актора, по соединению на запрос
-static dd::task<std::map<size_t, int>> ask(h2::internet_address addr, int connections) {
+static btye::task<std::map<size_t, int>> ask(h2::internet_address addr, int connections) {
   std::map<size_t, int> answers;
   for (int i = 0; i < connections; ++i) {
     h2::h2client client(addr, nullptr, {}, btye::local_io_ref());

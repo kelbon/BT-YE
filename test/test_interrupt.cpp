@@ -34,10 +34,10 @@ TEST("SIGTERM and SIGINT request stop") {
       auto factory = asio ? btye::default_actor_context_factory() : btye::test::not_asio_factory();
       int code = btye::run(
           actors(3),
-          [&]() -> dd::task<int> {
+          [&]() -> btye::task<int> {
             bool on_stop = false;
             btye::stop_subscription sub =
-                btye::local_actor_ref().on_stop(btye::stop_phases_e::first, [&]() -> dd::task<void> {
+                btye::local_actor_ref().on_stop(btye::stop_phases_e::first, [&]() -> btye::task<void> {
                   on_stop = true;
                   co_return;
                 });
@@ -64,7 +64,7 @@ TEST("signal while actors are created is not lost") {
     bool stopped = false;
     int code = btye::run(
         actors(3),
-        [&]() -> dd::task<int> {
+        [&]() -> btye::task<int> {
           while (!btye::local_actor()->stopped())
             co_await btye::yield();
           stopped = true;
@@ -86,7 +86,7 @@ TEST("signal is handled when it may be delivered to a thread created before run"
     auto factory = asio ? btye::default_actor_context_factory() : btye::test::not_asio_factory();
     int code = btye::run(
         actors(2),
-        [&]() -> dd::task<int> {
+        [&]() -> btye::task<int> {
           send_signal(SIGTERM);
           co_await btye::wait_stopped();
           co_return 6;

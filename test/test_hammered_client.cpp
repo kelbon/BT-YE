@@ -14,7 +14,7 @@ using btye::test::localhost;
 
 // тестирует сложный случай когда клиент hidi может синхронно прочитать сразу готовое GOAWAY из соединения
 // тест добавлен после бага
-static dd::task<void> hammer(hidi::internet_address addr, std::atomic_bool& stop, std::atomic_size_t& ok) {
+static btye::task<void> hammer(hidi::internet_address addr, std::atomic_bool& stop, std::atomic_size_t& ok) {
   while (!stop) {
     hidi::h2client client(addr, nullptr, {}, btye::local_io_ref());
     try {
@@ -28,7 +28,7 @@ static dd::task<void> hammer(hidi::internet_address addr, std::atomic_bool& stop
   }
 }
 
-static dd::task<void> rounds(size_t home, bool local_only = false, bool one_client = false) {
+static btye::task<void> rounds(size_t home, bool local_only = false, bool one_client = false) {
   for (int round = 0; round < 4; ++round) {
     co_await btye::jump_on_actor(home);
     btye::mt_server<id_server> server(
@@ -38,10 +38,10 @@ static dd::task<void> rounds(size_t home, bool local_only = false, bool one_clie
     hidi::internet_address addr = co_await server.listen(localhost());
     std::atomic_bool stop = false;
     std::atomic_size_t ok = 0;
-    dd::task<void> clients = one_client ? btye::invoke_on(1, [&] { return hammer(addr, stop, ok); })
-                                        : btye::invoke_on_all([&] { return hammer(addr, stop, ok); });
-    dd::task<void> stopper = [](btye::mt_server<id_server>& server, std::atomic_size_t& ok,
-                                std::atomic_bool& stop) -> dd::task<void> {
+    btye::task<void> clients = one_client ? btye::invoke_on(1, [&] { return hammer(addr, stop, ok); })
+                                          : btye::invoke_on_all([&] { return hammer(addr, stop, ok); });
+    btye::task<void> stopper = [](btye::mt_server<id_server>& server, std::atomic_size_t& ok,
+                                  std::atomic_bool& stop) -> btye::task<void> {
       while (ok < 8)
         co_await btye::yield();
       co_await server.shutdown();

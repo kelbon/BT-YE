@@ -37,7 +37,7 @@ struct counter {
 };
 
 // находится через ADL
-dd::task<void> per_actor_shutdown(counter& c) {
+btye::task<void> per_actor_shutdown(counter& c) {
   co_await btye::yield();
   c.j->stopped_on[c.id] = local_actor()->id();
 }
@@ -49,19 +49,19 @@ APP_TEST("per_actor: start, local, invoke, stop", .actors_count = 3) {
   co_await btye::jump_on(btye::get_actor(1));
   co_await c.start(&j, 5);
   REQUIRE(local_actor()->id() == 1 && c.local().value == 5 && c.local().id == 1);
-  co_await c.invoke_on_all([](counter& x) -> dd::task<void> {
+  co_await c.invoke_on_all([](counter& x) -> btye::task<void> {
     x.value += int(x.id);
     co_return;
   });
-  int on2 = co_await c.invoke_on(2, [](counter& x) -> dd::task<int> { co_return x.value; });
+  int on2 = co_await c.invoke_on(2, [](counter& x) -> btye::task<int> { co_return x.value; });
   REQUIRE(on2 == 7 && local_actor()->id() == 1);
-  co_await c.invoke_on_others([](counter& x) -> dd::task<void> {
+  co_await c.invoke_on_others([](counter& x) -> btye::task<void> {
     co_await btye::yield();
     x.value = 100;
   });
   REQUIRE(c.local().value == 6);
-  REQUIRE(co_await c.invoke_on(0, [](counter& x) -> dd::task<int> { co_return x.value; }) == 100);
-  co_await btye::invoke_on_all([&]() -> dd::task<void> {
+  REQUIRE(co_await c.invoke_on(0, [](counter& x) -> btye::task<int> { co_return x.value; }) == 100);
+  co_await btye::invoke_on_all([&]() -> btye::task<void> {
     actor_threads[local_actor()->id()] = std::this_thread::get_id();
     co_return;
   });
@@ -127,9 +127,9 @@ struct dependent {
 struct peer : btye::per_actor_peer<peer> {
   size_t value = local_actor()->id() * 100;
 
-  dd::task<size_t> next_value() {
+  btye::task<size_t> next_value() {
     size_t next = (local_actor()->id() + 1) % btye::all_actors().size();
-    co_return co_await container().invoke_on(next, [](peer& p) -> dd::task<size_t> { co_return p.value; });
+    co_return co_await container().invoke_on(next, [](peer& p) -> btye::task<size_t> { co_return p.value; });
   }
 };
 
@@ -141,7 +141,7 @@ APP_TEST("per_actor: std::ref, per_actor_param, per_actor_peer", .actors_count =
   btye::per_actor<dependent> deps;
   co_await deps.start(std::ref(bases), std::ref(bases),
                       btye::per_actor_param{[] { return local_actor()->id() * 10; }}, std::string("svc"));
-  co_await deps.invoke_on_all([&](dependent& d) -> dd::task<void> {
+  co_await deps.invoke_on_all([&](dependent& d) -> btye::task<void> {
     size_t id = local_actor()->id();
     ok[id] = d.local_base.id == id && &d.all_bases == &bases && d.param == id * 10 && d.name == "svc";
     co_return;
@@ -150,7 +150,7 @@ APP_TEST("per_actor: std::ref, per_actor_param, per_actor_peer", .actors_count =
   btye::per_actor<peer> peers;
   co_await peers.start();
   co_await peers.invoke_on_all(
-      [&](peer& p) -> dd::task<void> { next[local_actor()->id()] = co_await p.next_value(); });
+      [&](peer& p) -> btye::task<void> { next[local_actor()->id()] = co_await p.next_value(); });
   co_await peers.stop();
   co_await deps.stop();
   co_await bases.stop();

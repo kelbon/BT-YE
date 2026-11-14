@@ -23,7 +23,7 @@ struct offload_pool {
 
   // можно вызывать только с актора
   template <typename F>
-  dd::task<std::invoke_result_t<F&>> offload(F fn) {
+  task<std::invoke_result_t<F&>> offload(F fn) {
     actor& home = local_actor_ref();
     if (!home.offload_gate.try_enter())
       throw std::runtime_error("cannot offload when stopping");

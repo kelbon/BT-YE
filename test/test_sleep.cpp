@@ -11,7 +11,7 @@ using btye::local_actor;
 using btye::test::actors;
 
 TEST("sleep: time is out") {
-  int code = btye::run(actors(2), []() -> dd::task<int> {
+  int code = btye::run(actors(2), []() -> btye::task<int> {
     auto start = std::chrono::steady_clock::now();
     REQUIRE(co_await btye::sleep(10ms));
     REQUIRE(std::chrono::steady_clock::now() - start >= 10ms);
@@ -25,9 +25,9 @@ TEST("sleep: woken by the stop") {
   std::array<int, 2> ticks{0, 0};
   std::array<bool, 2> after_stop{false, false};
   auto start = std::chrono::steady_clock::now();
-  int code = btye::run(actors(2), [&]() -> dd::task<int> {
+  int code = btye::run(actors(2), [&]() -> btye::task<int> {
     for (size_t id : {0, 1}) {
-      btye::run_in_background([](size_t id, int& ticks, bool& after_stop) -> dd::task<void> {
+      btye::run_in_background([](size_t id, int& ticks, bool& after_stop) -> btye::task<void> {
         co_await btye::jump_on_actor(id);
         while (co_await btye::sleep(id == 0 ? 1ms : 1h))
           ++ticks;
@@ -45,9 +45,9 @@ TEST("sleep: woken by the stop") {
 
 TEST("sleep: woken by abort_source, abort while not sleeping is not lost") {
   bool woken = false, at_once = false;
-  int code = btye::run(actors(2), [&]() -> dd::task<int> {
+  int code = btye::run(actors(2), [&]() -> btye::task<int> {
     btye::abort_source as;
-    btye::run_in_background([](btye::abort_source& as) -> dd::task<void> {
+    btye::run_in_background([](btye::abort_source& as) -> btye::task<void> {
       co_await btye::yield();
       as.request_abort();
     }(as));
@@ -64,9 +64,9 @@ TEST("sleep: woken by abort_source, abort while not sleeping is not lost") {
 
 TEST("sleep: abort from another actor through invoke_on") {
   bool woken = false;
-  int code = btye::run(actors(2), [&]() -> dd::task<int> {
+  int code = btye::run(actors(2), [&]() -> btye::task<int> {
     btye::abort_source as;  // на акторе 0
-    btye::run_in_background([](btye::abort_source& as) -> dd::task<void> {
+    btye::run_in_background([](btye::abort_source& as) -> btye::task<void> {
       co_await btye::jump_on_actor(1);
       co_await btye::invoke_on(0, [&] { as.request_abort(); });
     }(as));

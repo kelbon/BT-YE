@@ -15,7 +15,7 @@ static void user_handler(int) {
 TEST("crash handlers are set for run and restored after") {
   auto old = std::signal(SIGSEGV, user_handler);
   bool set_in_run = false;
-  int code = btye::run(btye::app_options{.actors_count = 2, .handle_crash = true}, [&]() -> dd::task<int> {
+  int code = btye::run(btye::app_options{.actors_count = 2, .handle_crash = true}, [&]() -> btye::task<int> {
     auto h = std::signal(SIGSEGV, SIG_DFL);
     std::signal(SIGSEGV, h);
     set_in_run = h != user_handler && h != SIG_DFL;
@@ -54,7 +54,7 @@ static std::pair<std::string, int> crash_in_child(void (*crash)()) {
   if (pid == 0) {
     dup2(fds[1], STDERR_FILENO);
     close(fds[0]);
-    btye::run(btye::app_options{.actors_count = 2, .handle_crash = true}, [crash]() -> dd::task<int> {
+    btye::run(btye::app_options{.actors_count = 2, .handle_crash = true}, [crash]() -> btye::task<int> {
       co_await btye::jump_on_actor(1);
       crash();
       co_return 0;

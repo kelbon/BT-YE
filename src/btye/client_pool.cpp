@@ -103,7 +103,7 @@ void local_client_pool::collect() noexcept {
   }
 }
 
-dd::task<void> local_client_pool::stop() {
+task<void> local_client_pool::stop() {
   if (stopped)
     co_return;
   stopped = true;

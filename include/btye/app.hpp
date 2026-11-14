@@ -68,7 +68,7 @@ struct app_options {
 - контекст разрушается на потоке актора, когда закончились циклы всех акторов
 - `run` возвращается, когда закончились циклы всех акторов, возвращает то что вернул `main`
 */
-int run(app_options, aa::move_only_fn<dd::task<int>()> main,
+int run(app_options, aa::move_only_fn<task<int>()> main,
         actor_context_factory_t factory = default_actor_context_factory());
 
 /*
@@ -80,12 +80,12 @@ void request_stop() noexcept;
 
 // ждёт полного завершения текущего run. Нельзя вызывать из on_stop акторов (дедлок)
 //   co_await server.start(); ...; co_await btye::wait_stopped(); co_return 0;
-dd::task<void> wait_stopped();
+task<void> wait_stopped();
 
 // можно вызывать пока работает `run`
 // запускает задачу 'f' на пуле для блокирующих задач (если он есть, иначе исключение)
 template <typename F>
-dd::task<std::invoke_result_t<F&>> offload(F f) {
+task<std::invoke_result_t<F&>> offload(F f) {
   return local_actor_ref().offpool().offload(std::move(f));
 }
 

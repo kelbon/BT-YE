@@ -92,7 +92,7 @@ void app_test_impl(moko3::section_info* section, app_options opts, actor_context
   std::exception_ptr ex;
   int code = btye::run(
       opts,
-      [&]() -> dd::task<int> {
+      [&]() -> btye::task<int> {
         try {
           co_await Body(section);
         } catch (...) {
@@ -110,11 +110,11 @@ void app_test_impl(moko3::section_info* section, app_options opts, actor_context
 
 #define BTYE_TEST_NAME LOGIC_GUARDS_CONCAT(btye_app_test, __LINE__, __LINE__)
 
-// тело - `main` приложения (dd::task<void>), ему доступен `_section` (SECTION, GENERATE)
+// тело - `main` приложения (btye::task<void>), ему доступен `_section` (SECTION, GENERATE)
 // прогоняется на asio и на контексте, который не asio. После NAME - поля app_options:
 // APP_TEST("name", .actors_count = 3) { ... }
 #define APP_TEST(NAME, ...)                                                                    \
-  ::dd::task<void> BTYE_TEST_NAME(::moko3::section_info* _section);                            \
+  ::btye::task<void> BTYE_TEST_NAME(::moko3::section_info* _section);                          \
   TEST(NAME) {                                                                                 \
     SECTION("asio", 0) {                                                                       \
       ::btye::test::app_test_impl<&BTYE_TEST_NAME>(_section, ::btye::app_options{__VA_ARGS__}, \
@@ -125,4 +125,4 @@ void app_test_impl(moko3::section_info* section, app_options opts, actor_context
                                                    ::btye::test::not_asio_factory());          \
     }                                                                                          \
   }                                                                                            \
-  ::dd::task<void> BTYE_TEST_NAME(::moko3::section_info* _section)
+  ::btye::task<void> BTYE_TEST_NAME(::moko3::section_info* _section)

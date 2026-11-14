@@ -44,7 +44,7 @@ struct mt_server {
   stop_subscription on_stop;
 
   // мягко (h2server::shutdown) или нет (terminate), затем разрушение серверов. Возвращается на актор `home`
-  static dd::task<void> stop(std::shared_ptr<impl> m, bool graceful, hidi::deadline_t d) {
+  static task<void> stop(std::shared_ptr<impl> m, bool graceful, hidi::deadline_t d) {
     co_await jump_on_actor(m->home);
     if (m->stopping.closed()) {
       (void)co_await m->stopping.wait_open();
@@ -81,7 +81,7 @@ struct mt_server {
     } catch (...) {
       return;
     }
-    run_in_background([](std::shared_ptr<impl> m, size_t id, hidi::any_connection_t con) -> dd::task<void> {
+    run_in_background([](std::shared_ptr<impl> m, size_t id, hidi::any_connection_t con) -> task<void> {
       co_await jump_on_actor(id);
       m->servers.local().serve(std::move(con));
     }(std::move(m), id, std::move(con)));
@@ -111,8 +111,8 @@ struct mt_server {
   // назначает home актор для сервера (там делается listen_home / accept)
   // больше одного успешного .start звать нельзя
   template <typename... Args>
-  dd::task<void> start(hidi::server_ssl_context_ptr ssl = nullptr,
-                       hidi::h2server_options options = hidi::h2server_options::hardened(), Args&&... args) {
+  task<void> start(hidi::server_ssl_context_ptr ssl = nullptr,
+                   hidi::h2server_options options = hidi::h2server_options::hardened(), Args&&... args) {
     assert(m->home == size_t(-1) && "start already called");
     co_await m->servers.start(std::move(ssl), std::move(options), local_io_ref_param,
                               std::forward<Args>(args)...);
@@ -135,13 +135,13 @@ struct mt_server {
   }
 
   // listen_home, но с любого актора
-  dd::task<hidi::internet_address> listen(hidi::server_endpoint e) {
+  task<hidi::internet_address> listen(hidi::server_endpoint e) {
     co_return co_await invoke_on(m->home, [&] { return listen_home(e); });
   }
 
   // мягкая остановка серверов на всех акторах (h2server::shutdown), затем их разрушение. С любого актора,
   // возвращается на него. Если остановка уже идёт - ждёт её конца, если сервер остановлен - ничего не делает
-  dd::task<void> shutdown(hidi::deadline_t d = hidi::deadline_t::never()) {
+  task<void> shutdown(hidi::deadline_t d = hidi::deadline_t::never()) {
     actor& from = local_actor_ref();
     co_await stop(m, /*graceful=*/true, d);
     co_await jump_on(from);

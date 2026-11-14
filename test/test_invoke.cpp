@@ -14,7 +14,7 @@ using btye::local_actor;
 using btye::test::actor_bound;
 using btye::test::actors;
 
-static dd::task<size_t> where() {
+static btye::task<size_t> where() {
   co_return local_actor()->id();
 }
 
@@ -22,7 +22,7 @@ APP_TEST("invoke_on: result, returns to the caller", .actors_count = 3) {
   co_await btye::jump_on(btye::get_actor(1));
   size_t on2 = co_await btye::invoke_on(2, where);
   REQUIRE(on2 == 2 && local_actor()->id() == 1);
-  size_t on0 = co_await btye::invoke_on(btye::get_actor(0), []() -> dd::task<size_t> {
+  size_t on0 = co_await btye::invoke_on(btye::get_actor(0), []() -> btye::task<size_t> {
     co_await btye::yield();
     co_return local_actor()->id() + 10;
   });
@@ -51,7 +51,7 @@ APP_TEST("invoke_on: the function is called on the target actor, its copy per ac
 APP_TEST("invoke_on: exception after returning to the caller", .actors_count = 2) {
   bool caught_on_caller = false;
   try {
-    co_await btye::invoke_on(1, []() -> dd::task<void> {
+    co_await btye::invoke_on(1, []() -> btye::task<void> {
       throw std::runtime_error("on 1");
       co_return;
     });
@@ -67,7 +67,7 @@ APP_TEST("invoke_on_all: parallel", .actors_count = 4) {
   std::vector<int> visited(n, 0);
   co_await btye::jump_on(btye::get_actor(2));
   // все ждут друг друга: при последовательном вызове первый не дождался бы остальных
-  co_await btye::invoke_on_all([&]() -> dd::task<void> {
+  co_await btye::invoke_on_all([&]() -> btye::task<void> {
     ++arrived;
     while (arrived != n)
       co_await btye::yield();
@@ -81,13 +81,13 @@ APP_TEST("invoke_on_others and exceptions of invoke_on_all", .actors_count = 3) 
   std::vector<int> visited(3, 0);
   std::string error;
   co_await btye::jump_on(btye::get_actor(1));
-  co_await btye::invoke_on_others([&]() -> dd::task<void> {
+  co_await btye::invoke_on_others([&]() -> btye::task<void> {
     visited[local_actor()->id()] = 1;
     co_return;
   });
   // все выполняются, пробрасывается исключение актора с меньшим номером
   try {
-    co_await btye::invoke_on_all([&]() -> dd::task<void> {
+    co_await btye::invoke_on_all([&]() -> btye::task<void> {
       visited[local_actor()->id()] += 10;
       if (local_actor()->id() != 0)
         throw std::runtime_error(std::to_string(local_actor()->id()));
@@ -113,7 +113,7 @@ TEST("map_reduce_on_all: same as std::accumulate, values and copies of map/reduc
     size_t caller = size_t(-1);
     std::vector<std::atomic_size_t> reduces_on(n);
     int violations_before = actor_bound::violations();
-    int code = btye::run(actors(n), [&]() -> dd::task<int> {
+    int code = btye::run(actors(n), [&]() -> btye::task<int> {
       // вызов не с актора 0: результат должен вернуться сюда
       co_await btye::jump_on_actor(n - 1);
       auto map = [b = actor_bound{}] { return traced{{}, std::to_string(local_actor()->id())}; };
@@ -146,14 +146,14 @@ TEST("map_reduce_on_all: same as std::accumulate, values and copies of map/reduc
   }
 }
 
-APP_TEST("map_reduce_on_all: map and reduce returning dd::task", .actors_count = 5) {
+APP_TEST("map_reduce_on_all: map and reduce returning task", .actors_count = 5) {
   co_await btye::jump_on_actor(2);
   size_t sum = co_await btye::map_reduce_on_all(
-      []() -> dd::task<size_t> {
+      []() -> btye::task<size_t> {
         co_await btye::yield();
         co_return local_actor()->id();
       },
-      [](size_t a, size_t b) -> dd::task<size_t> {
+      [](size_t a, size_t b) -> btye::task<size_t> {
         co_await btye::yield();
         co_return a + b;
       });

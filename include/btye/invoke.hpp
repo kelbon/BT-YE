@@ -32,7 +32,7 @@ namespace noexport {
 
 // вызов внутри корутины: исключение из синхронной части fn тоже попадает в задачу
 template <typename F, typename... Args>
-dd::task<await_invoke_result_t<F, Args&&...>> call(F& fn, Args&&... args) {
+task<await_invoke_result_t<F, Args&&...>> call(F& fn, Args&&... args) {
   if constexpr (dd::co_awaitable<std::invoke_result_t<F&, Args&&...>>)
     co_return co_await fn(std::forward<Args>(args)...);
   else
@@ -41,25 +41,25 @@ dd::task<await_invoke_result_t<F, Args&&...>> call(F& fn, Args&&... args) {
 
 }  // namespace noexport
 
-// fn() -> R или dd::task<R> вызывается на `a`. Результат или исключение - на текущем акторе
+// fn() -> R или task<R> вызывается на `a`. Результат или исключение - на текущем акторе
 template <typename F>
-dd::task<await_invoke_result_t<F>> invoke_on(actor& a, F fn) {
+task<await_invoke_result_t<F>> invoke_on(actor& a, F fn) {
   actor& from = local_actor_ref();
   co_await jump_on(a);
-  dd::task t = noexport::call(fn);
+  auto t = noexport::call(fn);
   co_await t.wait();
   co_await jump_on(from);
   co_return t.get();
 }
 
 template <typename F>
-dd::task<await_invoke_result_t<F>> invoke_on(size_t id, F fn) {
+task<await_invoke_result_t<F>> invoke_on(size_t id, F fn) {
   return invoke_on(get_actor(id), std::move(fn));
 }
 
 namespace noexport {
 
-// назначает исключение для dd::task<void>, после этого сразу должен быть co_return
+// назначает исключение для task<void>, после этого сразу должен быть co_return
 struct set_exception_awaiter {
   std::exception_ptr&& e;
 
@@ -67,7 +67,7 @@ struct set_exception_awaiter {
     assert(e);
     return false;
   }
-  bool await_suspend(dd::task<void>::handle_type h) noexcept {
+  bool await_suspend(task<void>::handle_type h) noexcept {
     h.promise().set_exception(std::move(e));
     return false;
   }
@@ -77,7 +77,7 @@ struct set_exception_awaiter {
 #define BTYE_RETURN_EXCEPTION(e) co_return co_await ::btye::noexport::set_exception_awaiter(e)
 
 // ждёт все задачи, затем пробрасывает исключение первой по порядку
-inline dd::task<void> wait_all(std::vector<dd::task<void>> tasks) {
+inline task<void> wait_all(std::vector<task<void>> tasks) {
   // NOTE: если вы оказались здесь во время дебага исключения moko3
   // то у вас зафейлились сразу несколько тасок на разных акторах
   // и одно из тестовых исключений осталось необработанным
@@ -88,12 +88,12 @@ inline dd::task<void> wait_all(std::vector<dd::task<void>> tasks) {
 
 }  // namespace noexport
 
-// fn() -> void или dd::task<void> на всех акторах параллельно, у каждого актора своя копия fn (см. invoke_on)
+// fn() -> void или task<void> на всех акторах параллельно, у каждого актора своя копия fn (см. invoke_on)
 // ждёт все, затем пробрасывает исключение актора с меньшим номером
 template <typename F>
-dd::task<void> invoke_on_all(F fn) {
+task<void> invoke_on_all(F fn) {
   static_assert(std::is_void_v<await_invoke_result_t<F>>);
-  std::vector<dd::task<void>> tasks;
+  std::vector<task<void>> tasks;
   for (actor& a : all_actors())
     tasks.push_back(invoke_on(a, fn));
   co_await noexport::wait_all(std::move(tasks));
@@ -101,9 +101,9 @@ dd::task<void> invoke_on_all(F fn) {
 
 // то же, на всех акторах кроме текущего
 template <typename F>
-dd::task<void> invoke_on_others(F fn) {
+task<void> invoke_on_others(F fn) {
   static_assert(std::is_void_v<await_invoke_result_t<F>>);
-  std::vector<dd::task<void>> tasks;
+  std::vector<task<void>> tasks;
   for (actor& a : all_actors())
     if (&a != local_actor())
       tasks.push_back(invoke_on(a, fn));
@@ -119,7 +119,7 @@ struct partial_result {
 };
 
 template <typename R, typename Reduce>
-dd::task<void> merge(partial_result<R>& left, partial_result<R> right, Reduce& reduce) {
+task<void> merge(partial_result<R>& left, partial_result<R> right, Reduce& reduce) {
   if (left.error)
     co_return;  // исключение левого важнее
   if (right.error) {
@@ -194,7 +194,7 @@ struct mailbox {
 // Если акторов не степень двойки, у кого нет пары на шаге - пропускает его: при 5 акторах 4 ждёт до шага 4
 // и идёт к 0
 template <typename R, typename Map, typename Reduce>
-dd::task<void> tree_node(size_t i, std::span<mailbox<R, Map, Reduce>> mail, partial_result<R>& result) {
+task<void> tree_node(size_t i, std::span<mailbox<R, Map, Reduce>> mail, partial_result<R>& result) {
   co_await jump_on_actor(i);
   partial_result<R> mine;
   try {
@@ -220,15 +220,15 @@ dd::task<void> tree_node(size_t i, std::span<mailbox<R, Map, Reduce>> mail, part
 
 }  // namespace noexport
 
-// map() -> R или dd::task<R>
-// reduce(R, R) -> R или dd::task<R>
+// map() -> R или task<R>
+// reduce(R, R) -> R или task<R>
 // Свёртки идут параллельно на разных акторах, последняя - на акторе 0, результат приходит вызывающему
 // Для ассоциативной reduce результат = reduce(...reduce(reduce(r0, r1), r2)..., rN-1),
 // коммутативность не нужна. У каждого актора свои копии map и reduce: создаются и разрушаются на текущем
 // Ждёт все, затем пробрасывает исключение (если их несколько - с акторов с меньшими номерами)
 // Note: результаты map могут быть разрушены не на тех акторах, на которых созданы
 template <typename Map, typename Reduce>
-dd::task<await_invoke_result_t<Map&>> map_reduce_on_all(Map map, Reduce reduce) {
+task<await_invoke_result_t<Map&>> map_reduce_on_all(Map map, Reduce reduce) {
   using R = await_invoke_result_t<Map&>;
   static_assert(!std::is_void_v<R>, "use invoke_on_all");
   static_assert(std::is_convertible_v<await_invoke_result_t<Reduce, R, R>, R>);
@@ -237,7 +237,7 @@ dd::task<await_invoke_result_t<Map&>> map_reduce_on_all(Map map, Reduce reduce) 
   noexport::partial_result<R> result;
   // все узлы запускаются сразу, копии map и reduce создаются здесь
   // Узел текущего актора последним: он начинает map без перехода, остальные к этому моменту уже ушли
-  std::vector<dd::task<void>> nodes;
+  std::vector<task<void>> nodes;
   for (actor& a : all_actors())
     if (&a != &from)
       nodes.push_back(noexport::tree_node<R>(a.id(), std::span(mail), result));
