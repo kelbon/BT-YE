@@ -75,8 +75,11 @@ struct actor {
   // все background задачи (и главная на главном акторе)
   dd::gate background_gate;
   actor_locals locals_map;
+  // нижние в своих стеках traced_task
+  noexport::trace_leaves trace_leaves;
 
   friend struct noexport::app_state;
+  friend struct trace_ctx;
   friend std::span<actor> all_actors() noexcept;
   friend raw_client client_to(hidi::endpoint, client_params);
   friend struct offload_pool;
@@ -168,7 +171,7 @@ void run_in_background(task<void> t);
 
 namespace noexport {
 
-template <bool HereReady>
+// для traced_task заменяется на traced_jump_on (trace_ctx::transform)
 struct jump_on_actor_t : dd::task_node {
   actor& a;
 
@@ -176,14 +179,23 @@ struct jump_on_actor_t : dd::task_node {
   }
 
   bool await_ready() const noexcept {
-    if constexpr (HereReady)
-      return local_actor() == &a;
-    else
-      return false;
+    return local_actor() == &a;
   }
   void await_suspend(std::coroutine_handle<> h) {
     task = h;
     a.attach(this);
+  }
+  static void await_resume() noexcept {
+  }
+};
+
+struct yield_t : dd::task_node {
+  static bool await_ready() noexcept {
+    return false;
+  }
+  void await_suspend(std::coroutine_handle<> h) {
+    task = h;
+    local_actor_ref().attach(this);
   }
   static void await_resume() noexcept {
   }
@@ -194,18 +206,18 @@ struct jump_on_actor_t : dd::task_node {
 // noop если уже на этом акторе
 // С любого потока
 // jump_on нельзя делать корутине, которую никто не ждёт
-[[nodiscard]] inline noexport::jump_on_actor_t<true> jump_on(actor& a) noexcept {
-  return noexport::jump_on_actor_t<true>(a);
+[[nodiscard]] inline noexport::jump_on_actor_t jump_on(actor& a) noexcept {
+  return noexport::jump_on_actor_t(a);
 }
 
-[[nodiscard]] inline noexport::jump_on_actor_t<true> jump_on_actor(size_t id) noexcept {
+[[nodiscard]] inline noexport::jump_on_actor_t jump_on_actor(size_t id) noexcept {
   return jump_on(get_actor(id));
 }
 
 // встать в конец очереди текущего актора
 // можно вызывать только на акторе
-[[nodiscard]] inline noexport::jump_on_actor_t<false> yield() noexcept {
-  return noexport::jump_on_actor_t<false>(local_actor_ref());
+[[nodiscard]] inline noexport::yield_t yield() noexcept {
+  return {};
 }
 
 #ifndef NDEBUG

@@ -59,7 +59,7 @@ task<await_invoke_result_t<F>> invoke_on(size_t id, F fn) {
 
 namespace noexport {
 
-// назначает исключение для task<void>, после этого сразу должен быть co_return
+// назначает исключение для task<void, SomeCtx>, после этого сразу должен быть co_return
 struct set_exception_awaiter {
   std::exception_ptr&& e;
 
@@ -67,7 +67,8 @@ struct set_exception_awaiter {
     assert(e);
     return false;
   }
-  bool await_suspend(task<void>::handle_type h) noexcept {
+  template <typename P>
+  bool await_suspend(std::coroutine_handle<P> h) noexcept {
     h.promise().set_exception(std::move(e));
     return false;
   }
