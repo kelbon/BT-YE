@@ -78,6 +78,9 @@ struct set_exception_awaiter {
 
 // ждёт все задачи, затем пробрасывает исключение первой по порядку
 inline dd::task<void> wait_all(std::vector<dd::task<void>> tasks) {
+  // NOTE: если вы оказались здесь во время дебага исключения moko3
+  // то у вас зафейлились сразу несколько тасок на разных акторах
+  // и одно из тестовых исключений осталось необработанным
   for (auto& r : co_await dd::when_all(std::move(tasks)))
     if (!r)
       BTYE_RETURN_EXCEPTION(std::move(r.error()));

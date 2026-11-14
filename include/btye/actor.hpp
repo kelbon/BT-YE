@@ -121,6 +121,15 @@ struct actor {
     return locals_map;
   }
 
+  template <typename T>
+  [[nodiscard]] T* get_local(std::string_view key) noexcept {
+    assert(local_actor() == this);
+    auto it = locals_map.find(key);
+    if (it == locals_map.end())
+      return nullptr;
+    return aa::any_cast<T>(&it->second);
+  }
+
   // можно вызывать с любого потока. Всегда ставит задачу в очередь
   void attach(dd::task_node* n) {
     ctx.attach(n);

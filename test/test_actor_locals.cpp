@@ -22,13 +22,15 @@ TEST("actor locals: own map on each actor, empty at the start of every run") {
           empty_at_start = false;
         locals().try_emplace("id", local_actor()->id());
       });
-      // после invoke_on_all чужие мапы уже никто не трогает
       co_await btye::invoke_on_all([&] {
         btye::actor& a = btye::local_actor_ref();
         auto it = a.locals().find(std::string_view("id"));
         REQUIRE(it != a.locals().end());
-        REQUIRE(*aa::any_cast<size_t>(&it->second) == a.id());
+        auto* id = a.get_local<decltype(local_actor()->id())>("id");
+        REQUIRE(id && id == aa::any_cast<size_t>(&it->second));
+        REQUIRE(*id == a.id());
         REQUIRE(aa::any_cast<int>(&it->second) == nullptr);
+        REQUIRE(a.get_local<float>("id") == nullptr);
       });
       co_return 0;
     });
