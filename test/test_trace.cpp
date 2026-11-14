@@ -75,6 +75,8 @@ APP_TEST("trace: the actor keeps the deepest task of each chain", .actors_count 
   REQUIRE(leaves == 2 + BTYE_TRACE_TASKS);
   REQUIRE(count_of(seen, "child_sleep") == 2 && count_of(seen, "fan_out") == 2);
   REQUIRE(count_of(seen, "when_all") >= 2);
+  if (BTYE_TRACE_TASKS)  // наблюдатель - фоновая задача: известно, откуда запущена
+    REQUIRE(seen.contains("^ root, started at ") && seen.contains("test_trace.cpp:"));
 }
 
 static traced_task<void> noop_child() {

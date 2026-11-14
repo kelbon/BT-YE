@@ -8,6 +8,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 using btye::local_actor;
@@ -194,6 +195,34 @@ APP_TEST("map_reduce_on_all: exceptions after all actors are done", .actors_coun
   }
   REQUIRE(error == "reduce");
   REQUIRE(local_actor()->id() == 0);
+}
+
+static btye::task<size_t> ends_on(size_t id, size_t value) {
+  co_await btye::jump_on_actor(id);
+  co_return value;
+}
+
+static btye::task<size_t> throws_on(size_t id) {
+  co_await btye::jump_on_actor(id);
+  throw std::runtime_error("throws_on");
+}
+
+APP_TEST("when_any: continues on the current actor, not on the winner's", .actors_count = 3) {
+  auto r = co_await btye::when_any(ends_on(1, 10), ends_on(2, 20));
+  REQUIRE(local_actor()->id() == 0);
+  REQUIRE((r.index() == 0 ? *std::get<0>(r) : *std::get<1>(r)) == (r.index() == 0 ? 10 : 20));
+
+  std::vector<btye::task<size_t>> tasks;
+  tasks.push_back(ends_on(2, 30));
+  tasks.push_back(ends_on(1, 40));
+  auto d = co_await btye::when_any(std::move(tasks));
+  REQUIRE(local_actor()->id() == 0);
+  REQUIRE(*d.value == (d.index() == 0 ? 30 : 40));
+
+  // все упали: исключение тоже здесь
+  auto e = co_await btye::when_any(throws_on(1), throws_on(2));
+  REQUIRE(local_actor()->id() == 0);
+  REQUIRE(std::visit([](auto& x) { return !x; }, e));
 }
 
 REGISTER_TEST_LISTENER(moko3::gtest_listener);

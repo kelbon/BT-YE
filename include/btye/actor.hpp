@@ -93,7 +93,7 @@ struct actor {
     return idx;
   }
 
-  void run_background(task<void>);
+  void run_background(task<void>, dd::source_location l = dd::source_location::current());
 
   // Остановка дошла до этого актора (см. btye::request_stop)
   // можно вызывать только с актора
@@ -167,7 +167,7 @@ struct actor {
 // Запускает задачу на текущем акторе (только на акторе) как фоновую
 // Исключение из `task` игнорируется (лог)
 // Нельзя вызывать из корутины, которую никто не ждёт
-void run_in_background(task<void> t);
+void run_in_background(task<void> t, dd::source_location l = dd::source_location::current());
 
 namespace noexport {
 

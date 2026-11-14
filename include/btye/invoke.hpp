@@ -250,4 +250,30 @@ task<await_invoke_result_t<Map&>> map_reduce_on_all(Map map, Reduce reduce) {
   co_return std::move(*result.value);
 }
 
+namespace noexport {
+
+template <typename T, typename Ctx>
+dd::task<T, Ctx> return_home(actor& home, dd::task<T, Ctx> t) {
+  co_await t.wait();
+  // предотвращает abort на traced_task сработавшей на первой на другом акторе
+  co_await jump_on(home);
+  co_return t.get();
+}
+
+}  // namespace noexport
+
+template <typename... Ts, typename... Ctx>
+auto when_any(dd::task<Ts, Ctx>... tasks) {
+  actor& home = local_actor_ref();
+  return dd::when_any(noexport::return_home(home, std::move(tasks))...);
+}
+
+template <typename T, typename Ctx>
+auto when_any(std::vector<dd::task<T, Ctx>> tasks) {
+  actor& home = local_actor_ref();
+  for (dd::task<T, Ctx>& t : tasks)
+    t = noexport::return_home(home, std::move(t));
+  return dd::when_any(std::move(tasks));
+}
+
 }  // namespace btye

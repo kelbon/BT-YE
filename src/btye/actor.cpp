@@ -16,7 +16,10 @@ dd::job do_background_task(dd::gate::holder h, task<void> t) {
   co_await jump_on(home);
 }
 
-void actor::run_background(task<void> t) {
+void actor::run_background(task<void> t, dd::source_location l) {
+#if BTYE_TRACE_TASKS
+  t.get_context()->started = l;
+#endif
   (void)do_background_task(background_gate.hold(), std::move(t));
 }
 
@@ -29,8 +32,8 @@ stop_subscription actor::on_stop(stop_phases_e p, aa::move_only_fn<task<void>()>
   return sub;
 }
 
-void run_in_background(task<void> t) {
-  local_actor_ref().run_background(std::move(t));
+void run_in_background(task<void> t, dd::source_location l) {
+  local_actor_ref().run_background(std::move(t), l);
 }
 
 }  // namespace btye
