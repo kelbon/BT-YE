@@ -3,8 +3,12 @@
 #include <array>
 #include <cassert>
 #include <coroutine>
+#include <functional>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
 #include <anyany/anyany.hpp>
 #include <kelcoro/executor_interface.hpp>
@@ -19,7 +23,19 @@ namespace btye {
 
 namespace noexport {
 struct app_state;
-}
+
+struct string_hash : std::hash<std::string_view> {
+  using is_transparent = void;
+};
+
+}  // namespace noexport
+
+// Значение любого типа, достаётся через aa::any_cast<T>(&v)
+// Неперемещаемые кладутся на место: locals.try_emplace("key", std::in_place_type<T>, args...)
+using actor_local_value = aa::any_with<aa::type_info>;
+
+using actor_locals =
+    std::unordered_map<std::string, actor_local_value, noexport::string_hash, std::equal_to<>>;
 
 // Остановка приложения идёт по фазам по порядку. Фаза проходит на всех акторах, и следующая начинается,
 // когда закончились все обработчики предыдущей на всех акторах
@@ -41,8 +57,6 @@ struct offload_pool;
 [[nodiscard]] actor* local_actor() noexcept;
 
 // Поток со своим циклом событий. Создаются и живут внутри btye::run
-// TODO actor local
-// на каждом акторе unordered_map<ключ, aa::any>
 struct actor {
  private:
   hidi::any_io_context ctx;
@@ -60,6 +74,7 @@ struct actor {
   dd::gate offload_gate;
   // все background задачи (и главная на главном акторе)
   dd::gate background_gate;
+  actor_locals locals_map;
 
   friend struct noexport::app_state;
   friend std::span<actor> all_actors() noexcept;
@@ -96,6 +111,15 @@ struct actor {
 
   // пул один на одно приложение (исключение если выключен)
   offload_pool& offpool();
+
+  // Переменные этого актора, в начале run пусто. Разрушаются на потоке актора, когда закончились циклы всех
+  // акторов (после фаз остановки и фоновых задач), до пула клиентов и контекста. Порядок не определён.
+  // Деструктор значения может обращаться к locals(): он видит пустую мапу, положенное туда тоже разрушится.
+  // Асинхронная остановка значений - через on_stop
+  [[nodiscard]] actor_locals& locals() noexcept {
+    assert(local_actor() == this);
+    return locals_map;
+  }
 
   // можно вызывать с любого потока. Всегда ставит задачу в очередь
   void attach(dd::task_node* n) {

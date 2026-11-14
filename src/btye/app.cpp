@@ -54,6 +54,13 @@ struct app_state {
     a.clients_stop = a.on_stop(stop_phases_e::clients, [&p] { return p.stop(); });
   }
 
+  // вызывается на потоке актора, когда циклы всех акторов закончились
+  static void destroy_locals(actor& a) noexcept {
+    // цикл на случай если само разрушение складывает что-то в locals
+    while (!a.locals_map.empty())
+      (void)std::exchange(a.locals_map, {});
+  }
+
   // на потоке актора, когда циклы закончились (пул уже остановлен в фазе clients)
   static void destroy_clients(actor& a) noexcept {
     a.clients.reset();
@@ -230,6 +237,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
       ready.count_down();
       app_state::run_loop(a);
       loops_done.arrive_and_wait();
+      app_state::destroy_locals(a);
       app_state::destroy_clients(a);
       a.ioctx().reset();
       current_actor = nullptr;
@@ -243,6 +251,7 @@ int run(app_options opts, aa::move_only_fn<dd::task<int>()> main, actor_context_
   app_state::run_loop(a0);
   foreign_app.store(nullptr, std::memory_order_release);
   loops_done.arrive_and_wait();
+  app_state::destroy_locals(a0);
   if (s.ofpool)  // задач там уже быть не должно, всех дождались offload_gate акторов
     s.ofpool.reset();
   app_state::destroy_clients(a0);
