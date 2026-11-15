@@ -80,7 +80,12 @@ void request_stop() noexcept;
 
 // ждёт полного завершения текущего run. Нельзя вызывать из on_stop акторов (дедлок)
 //   co_await server.start(); ...; co_await btye::wait_stopped(); co_return 0;
+// после wait_stopped могут ещё быть живы run_in_background
 task<void> wait_stopped();
+
+// дожидается остановки всех run_in_background на всех акторах
+// дальнейшие run_in_background закончатся исключением
+task<void> stop_background();
 
 // можно вызывать пока работает `run`
 // запускает задачу 'f' на пуле для блокирующих задач (если он есть, иначе исключение)

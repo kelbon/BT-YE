@@ -38,6 +38,21 @@ TEST("actor locals: own map on each actor, empty at the start of every run") {
   }
 }
 
+TEST("actor locals: get_or_emplace_local creates once, then returns the same value") {
+  int code = btye::run(actors(2), [&]() -> btye::task<int> {
+    co_await btye::invoke_on_all([&] {
+      btye::actor& a = btye::local_actor_ref();
+      int& x = a.get_or_emplace_local<int>("x", int(a.id()) + 10);
+      REQUIRE(x == int(a.id()) + 10);
+      x = 42;
+      REQUIRE(&a.get_or_emplace_local<int>("x", 0) == &x && x == 42);
+      REQUIRE(a.get_local<int>("x") == &x);
+    });
+    co_return 0;
+  });
+  REQUIRE(code == 0);
+}
+
 struct counted {
   btye::actor* home = local_actor();
   std::atomic_size_t& destroyed;

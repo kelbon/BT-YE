@@ -1,5 +1,7 @@
 #include "btye/actor.hpp"
 
+#include <stdexcept>
+
 #include <kelcoro/job.hpp>
 
 #include "btye/utils/log_exception.hpp"
@@ -17,6 +19,8 @@ dd::job do_background_task(dd::gate::holder h, task<void> t) {
 }
 
 void actor::run_background(task<void> t, dd::source_location l) {
+  if (background_gate.is_closed())
+    throw std::runtime_error("btye: background tasks are stopped");
 #if BTYE_TRACE_TASKS
   t.get_context()->started = l;
 #endif

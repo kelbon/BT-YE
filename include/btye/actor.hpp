@@ -133,6 +133,18 @@ struct actor {
     return aa::any_cast<T>(&it->second);
   }
 
+  // precondition: если значение есть, оно типа T
+  template <typename T, typename... Args>
+  [[nodiscard]] T& get_or_emplace_local(std::string_view key, Args&&... args) {
+    assert(local_actor() == this);
+    auto it = locals_map.find(key);
+    if (it == locals_map.end())
+      it = locals_map.try_emplace(std::string(key), std::in_place_type<T>, std::forward<Args>(args)...).first;
+    T* p = aa::any_cast<T>(&it->second);
+    assert(p && "actor local unexpected type");
+    return *p;
+  }
+
   // можно вызывать с любого потока. Всегда ставит задачу в очередь
   void attach(dd::task_node* n) {
     ctx.attach(n);

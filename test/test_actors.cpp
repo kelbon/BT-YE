@@ -1,6 +1,7 @@
 #include "test_utils.hpp"
 
 #include "btye/invoke.hpp"
+#include "btye/sleep.hpp"
 
 #include <hidi/asio/io.hpp>
 #include <kelcoro/job.hpp>
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -312,13 +314,41 @@ TEST("main waits for the stop requested from a foreign thread") {
     });
     co_await btye::wait_stopped();
     t.join();
-    // main - фоновая задача: после остановки можно ходить по акторам
+    // пока идёт main, циклы живы: после остановки можно ходить по акторам
     for (btye::actor& a : all_actors())
       co_await btye::jump_on(a);
     stopped = true;
     co_return 5;
   });
   REQUIRE(code == 5 && stopped);
+}
+
+TEST("stop_background: main destroys what background tasks use only after them") {
+  bool all_done = false;
+  bool rejected = false;
+  int code = btye::run(actors(3), [&]() -> btye::task<int> {
+    // каждая задача пишет в свою ячейку, массив в кадре main
+    std::array<int, 3> used{};
+    co_await btye::invoke_on_all([&] {
+      btye::run_in_background([](int& u) -> btye::task<void> {
+        (void)co_await btye::sleep(std::chrono::hours(1));  // будит остановка
+        for (int i = 0; i < 3; ++i)
+          co_await yield();
+        ++u;
+      }(used[local_actor()->id()]));
+    });
+    btye::request_stop();
+    co_await btye::wait_stopped();
+    co_await btye::stop_background();
+    all_done = used == std::array{1, 1, 1};
+    try {
+      btye::run_in_background([]() -> btye::task<void> { co_return; }());
+    } catch (std::runtime_error&) {
+      rejected = true;
+    }
+    co_return 6;
+  });
+  REQUIRE(code == 6 && all_done && rejected);
 }
 
 TEST("exceptions from stop handlers and background tasks are only logged") {

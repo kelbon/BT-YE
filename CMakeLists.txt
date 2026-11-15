@@ -14,6 +14,7 @@ if(btye_SANITIZE)
 endif()
 
 include(cmake/deps.cmake)
+include(cmake/btye_generate.cmake)
 
 add_library(btyelib STATIC
     src/btye/app.cpp

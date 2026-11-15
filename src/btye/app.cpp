@@ -40,6 +40,8 @@ struct app_state {
   bool stop_started = false;
   // только на акторе 0: открывается, когда прошли все фазы остановки (wait_stopped)
   dd::road stopped;
+  // только на акторе 0: держит `main`
+  dd::gate main_gate;
   // пишется по ходу `main`, читается после конца циклов
   int exit_code = 0;
   std::optional<offload_pool> ofpool;
@@ -115,6 +117,10 @@ struct app_state {
     co_await jump_on(from);
   }
 
+  static task<void> close_background() {
+    return invoke_on_all([]() -> task<void> { co_await local_actor_ref().background_gate.close(); });
+  }
+
   static dd::job stop_actors(app_state& s) {
     co_await jump_on(s.actors[0]);
     if (std::exchange(s.stop_started, true))
@@ -137,10 +143,8 @@ struct app_state {
       co_await a.offload_gate.close();
     });
     s.stopped.open(s.actors[0]);
-    co_await invoke_on_all([]() -> task<void> {
-      actor& a = local_actor_ref();
-      co_await a.background_gate.close();
-    });
+    co_await close_background();
+    co_await s.main_gate.close();
     // разрешаем циклам .run самим завершится
     (void)release_actors(s);
   }
@@ -152,7 +156,7 @@ struct app_state {
 
   static dd::job start_main(app_state& s, aa::move_only_fn<task<int>()>& main) {
     actor& a0 = s.actors[0];
-    auto guard = a0.background_gate.hold();
+    auto guard = s.main_gate.hold();
     co_await yield();
     int code;
     try {
@@ -162,7 +166,7 @@ struct app_state {
       log_exception("main", std::current_exception());
     }
     s.exit_code = code;
-    // `main` - фоновая задача, циклы живы: вернуться на актор можно всегда
+    // пока держится main_gate, циклы живы: вернуться на актор можно всегда
     co_await jump_on(a0);
     request_stop(a0);
   }
@@ -197,6 +201,10 @@ void request_stop() noexcept {
 
 task<void> wait_stopped() {
   return noexport::app_state::wait_stopped(local_actor_ref());
+}
+
+task<void> stop_background() {
+  return noexport::app_state::close_background();
 }
 
 int run(app_options opts, aa::move_only_fn<task<int>()> main, actor_context_factory_t factory) {
