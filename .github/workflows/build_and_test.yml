@@ -48,6 +48,7 @@ jobs:
         run: |
           cmake . -B build -G Ninja \
             -Dbtye_ENABLE_TESTING=ON \
+            -Dbtye_ENABLE_EXAMPLES=ON \
             -Dbtye_SANITIZE=${{ matrix.sanitize }} \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DCMAKE_C_COMPILER=${{ matrix.compiler }} \

@@ -1,0 +1,55 @@
+openapi: 3.1.0
+info:
+  title: kv
+  version: "1.0"
+paths:
+  /keys/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getValue
+      responses:
+        "200":
+          description: value
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: no such key
+    put:
+      operationId: putValue
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "204":
+          description: stored
+    delete:
+      operationId: deleteValue
+      responses:
+        "204":
+          description: deleted
+        "404":
+          description: no such key
+  /size:
+    get:
+      operationId: getSize
+      responses:
+        "200":
+          description: number of keys
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count:
+                    type: integer

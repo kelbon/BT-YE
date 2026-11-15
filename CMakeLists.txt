@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 project(btye)
 
 option(btye_ENABLE_TESTING "enables testing" OFF)
+option(btye_ENABLE_EXAMPLES "builds examples" OFF)
 set(btye_SANITIZE "" CACHE STRING "value for -fsanitize (for CI), e.g. address,undefined or thread")
 
 set(btye_TRACE_TASKS "DEBUG" CACHE STRING "trace btye::task: ON, OFF or DEBUG (only in Debug configuration)")
@@ -61,6 +62,10 @@ set_target_properties(btyelib PROPERTIES
 if(btye_ENABLE_TESTING)
 	include(CTest)
 	add_subdirectory(test)
+endif()
+
+if(btye_ENABLE_EXAMPLES)
+	add_subdirectory(examples/kv)
 endif()
 
 # generates launch.json, places compile_commands.json correctly for clangd
