@@ -1,6 +1,6 @@
 #pragma once
 
-#include "btye/app.hpp"
+#include "btye/testing.hpp"
 
 #include <hidi/asio/io_impl.hpp>
 #include <hidi/h2server.hpp>
@@ -8,7 +8,6 @@
 #include <moko3/moko3.hpp>
 
 #include <atomic>
-#include <exception>
 
 namespace btye::test {
 
@@ -66,10 +65,7 @@ struct id_server : hidi::h2server {
   }
 };
 
-// 127.0.0.1, порт выбирает система
-inline hidi::server_endpoint localhost() {
-  return {.addr = hidi::internet_address(boost::asio::ip::make_address("127.0.0.1"), 0)};
-}
+using testing::localhost;
 
 // контекст asio, но не hidi::asio_io: btye идёт по путям для любого контекста (прерывание через поток
 // sigwait, local_io_ref с пересылкой)
@@ -86,26 +82,6 @@ inline actor_context_factory_t not_asio_factory() {
   return [] noexcept { return hidi::any_io_context(std::in_place_type<not_asio_io>); };
 }
 
-// исключение теста пробрасывается из run, а не превращается в код 1
-template <auto* Body>
-void app_test_impl(moko3::section_info* section, app_options opts, actor_context_factory_t factory) {
-  std::exception_ptr ex;
-  int code = btye::run(
-      opts,
-      [&]() -> btye::task<int> {
-        try {
-          co_await Body(section);
-        } catch (...) {
-          ex = std::current_exception();
-        }
-        co_return 0;
-      },
-      std::move(factory));
-  if (ex)
-    std::rethrow_exception(ex);
-  REQUIRE(code == 0);
-}
-
 }  // namespace btye::test
 
 #define BTYE_TEST_NAME LOGIC_GUARDS_CONCAT(btye_app_test, __LINE__, __LINE__)
@@ -117,12 +93,13 @@ void app_test_impl(moko3::section_info* section, app_options opts, actor_context
   ::btye::task<void> BTYE_TEST_NAME(::moko3::section_info* _section);                          \
   TEST(NAME) {                                                                                 \
     SECTION("asio", 0) {                                                                       \
-      ::btye::test::app_test_impl<&BTYE_TEST_NAME>(_section, ::btye::app_options{__VA_ARGS__}, \
-                                                   ::btye::default_actor_context_factory());   \
+      ::btye::testing::run_test(::btye::app_options{__VA_ARGS__},                              \
+                                [&] { return BTYE_TEST_NAME(_section); });                     \
     }                                                                                          \
     SECTION("not asio", 1) {                                                                   \
-      ::btye::test::app_test_impl<&BTYE_TEST_NAME>(_section, ::btye::app_options{__VA_ARGS__}, \
-                                                   ::btye::test::not_asio_factory());          \
+      ::btye::testing::run_test(::btye::app_options{__VA_ARGS__},                              \
+                                [&] { return BTYE_TEST_NAME(_section); },                      \
+                                ::btye::test::not_asio_factory());                             \
     }                                                                                          \
   }                                                                                            \
   ::btye::task<void> BTYE_TEST_NAME(::moko3::section_info* _section)
