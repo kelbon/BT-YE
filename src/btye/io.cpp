@@ -12,8 +12,8 @@ namespace noexport {
 struct actor_io {
   hidi::any_io_context* ctx;
 
-  hidi::any_timer create_timer() {
-    return ctx->create_timer();
+  hidi::any_timer create_timer(hidi::timer_precision p) {
+    return ctx->create_timer(p);
   }
   void attach(dd::task_node* n) {
     ctx->attach(n);
@@ -55,10 +55,9 @@ struct actor_io {
                                      hidi::server_ssl_context_ptr ssl) {
     return ctx->create_acceptor(a, reuse, std::move(o), std::move(ssl));
   }
-  // `other` - тоже actor_io: соединение привязывается к контексту, на который он ссылается
-  static void rebind_context(hidi::any_connection_t& con, hidi::any_io_context_ref other) {
-    hidi::any_io_context& to = *aa::any_cast<actor_io&>(other).ctx;
-    aa::invoke<hidi::rebind_context_m>(to)(con, *&to);
+  // native() контекста, которому всё пересылается: соединения привязываются к нему
+  void* native() {
+    return ctx->native();
   }
 };
 
@@ -73,8 +72,8 @@ hidi::any_io_context local_io_ref() {
   return noexport::actor_io{std::addressof(ctx)};
 }
 
-hidi::any_timer create_timer() {
-  return local_actor_ref().ioctx().create_timer();
+hidi::any_timer create_timer(hidi::timer_precision p) {
+  return local_actor_ref().ioctx().create_timer(p);
 }
 
 }  // namespace btye

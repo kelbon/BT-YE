@@ -154,7 +154,7 @@ struct actor {
   // таймеров - create_timer() (btye/io.hpp).
   // Циклом управляет btye::run (run, poll, stop, restart, start_task, end_task не вызывать), контекст
   // разрушается в конце run. Можно вызывать с любого потока, а что можно делать с контекстом с чужого
-  // потока - определяет его реализация (attach и rebind_context можно)
+  // потока - определяет его реализация (attach и rebind можно)
   [[nodiscard]] hidi::any_io_context& ioctx() noexcept {
     return ctx;
   }

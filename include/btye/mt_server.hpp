@@ -76,8 +76,8 @@ struct mt_server {
   static void distribute(std::shared_ptr<impl> m, hidi::any_connection_t con) {
     size_t id = m->choose();
     try {
-      hidi::any_io_context& io = get_actor(id).ioctx();
-      aa::invoke<hidi::rebind_context_m>(io)(con, *&io);
+      hidi::rebind_result r;
+      con.rebind(get_actor(id).ioctx().native(), r);
     } catch (...) {
       return;
     }

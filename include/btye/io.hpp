@@ -15,6 +15,6 @@ namespace btye {
 hidi::any_io_context local_io_ref();
 
 // таймер на контексте текущего актора, использовать и разрушать на нём же
-hidi::any_timer create_timer();
+hidi::any_timer create_timer(hidi::timer_precision = hidi::timer_precision::exact);
 
 }  // namespace btye

@@ -71,11 +71,6 @@ using testing::localhost;
 // sigwait, local_io_ref с пересылкой)
 struct not_asio_io : hidi::asio_io {
   using hidi::asio_io::asio_io;
-
-  static void rebind_context(hidi::any_connection_t& con, hidi::any_io_context_ref other) {
-    hidi::asio_io& to = aa::any_cast<not_asio_io&>(other);
-    hidi::asio_io::rebind_context(con, to);
-  }
 };
 
 inline actor_context_factory_t not_asio_factory() {
