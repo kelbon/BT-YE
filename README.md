@@ -4,16 +4,6 @@
 Корутины - [kelcoro](https://github.com/kelbon/kelcoro), HTTP/2 - [hidi](https://github.com/kelbon/hidi),
 OpenAPI -> C++ - [svarg](https://github.com/kelbon/svarg)
 
-## Почему btye
-
-- актор на ядро: у каждого свой цикл событий и свои данные, мьютексов нет. Данные делятся между акторами, а не
-  защищаются
-- к другому актору - через `co_await`: `invoke_on`, `invoke_on_all`, `map_reduce_on_all`
-- сервер из OpenAPI спеки: соединения принимает один актор и раздаёт всем
-- остановка по фазам: сначала серверы дожидаются запросов, затем клиенты
-- стеки корутин в отладке
-- утилиты для тестов сервиса на [moko3](https://github.com/kelbon/moko3)
-
 ## Пример
 
 Хранилище ключ - значение, ключи поделены между акторами. Полностью - [examples/kv](examples/kv)
